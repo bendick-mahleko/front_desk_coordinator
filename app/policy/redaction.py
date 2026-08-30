@@ -23,6 +23,13 @@ from typing import Any
 # Fields whose *values* are protected wherever they appear. Keyed by field name
 # because the argument models name them consistently (AD-02).
 SENSITIVE_FIELDS: dict[str, str] = {
+    # Names identify a person as surely as a date of birth does. The audit log
+    # keeps the clinic-issued patient_id, which gives an auditor everything they
+    # need to trace a decision without the log itself becoming a patient index.
+    "first_name": "<name>",
+    "last_name": "<name>",
+    "patient_first_name": "<name>",
+    "patient_last_name": "<name>",
     "date_of_birth": "<dob>",
     "identifier_1_value": "<identifier>",
     "identifier_2_value": "<identifier>",

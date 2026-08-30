@@ -7,10 +7,11 @@ checks insurance eligibility, shares clinic information, sends secure messages,
 creates new-patient records and escalates to staff. It does not diagnose, triage,
 advise on medication, interpret test results or make billing decisions.
 
-> **Status: Phase 5 — safety subsystem.** Emergencies are screened before the
-> agent loop runs, refusals route to staff, and symptom collection is minimised.
-> 567 tests, none of which call the API. Audit and the UI are Phases 6–7. See
-> `IMPLEMENTATION_PLAN.md` for the phase order.
+> **Status: Phase 6 — audit and observability.** Every gate decision, tool
+> result, verification, escalation and refusal is written to a hash-chained,
+> append-only log that `verify-audit` can check for tampering. 598 tests, none
+> of which call the API. The UI is Phase 7. See `IMPLEMENTATION_PLAN.md` for the
+> phase order.
 
 ---
 
@@ -51,6 +52,7 @@ uv run pytest                  # must be green before every phase transition
 uv run ruff check .
 uv run ruff format .
 uv run mypy app
+uv run verify-audit            # walks the audit chain; non-zero if broken
 ```
 
 ---
@@ -151,9 +153,12 @@ app/
     redaction.py   PHI redaction and output masking
     messages.py    Patient-safe denial vocabulary
     decorator.py   @gated — where a call is actually stopped
+  logging.py       structlog config — one emit path
   store/
     session.py     Session state; the only thing the gate may reason about
-    models.py      SQLite write-behind
+    models.py      SQLite write-behind + the audit mirror
+    audit.py       Hash-chained JSONL writer
+    verify.py      Chain verifier (`uv run verify-audit`)
   tools/
     schemas.py     8 enums + 15 argument models — the single schema source
     registry.py    Composes beta_tool + gate + error normalisation
@@ -165,7 +170,7 @@ app/
   util/dates.py    Date normalisation in clinic time
 ui/
   app.py           Streamlit client
-tests/             567 tests, no network, no model
+tests/             598 tests, no network, no model
   replay.py        Recorded-transcript backend, so tests need no API
 clinic.yaml        Clinic policy and configuration
 ```
@@ -208,6 +213,31 @@ call.
 
 The emergency number is `clinic.yaml` policy, not a constant — `911` is wrong
 everywhere outside the US.
+
+## The audit log
+
+Every gate decision, tool result, verification, escalation, refusal and model
+error is appended to `audit/audit-YYYY-MM-DD.jsonl`. Each record carries the
+SHA-256 of the one before it, so altering or deleting a line breaks every hash
+after it:
+
+```
+$ uv run verify-audit
+audit/audit-2026-08-30.jsonl: 15 record(s) — chain intact
+
+$ uv run verify-audit          # after one field is edited
+audit/audit-2026-08-30.jsonl: 15 record(s) — 1 problem(s)
+  line 11 [altered] 5216b413: contents hash to f8a952e3, record claims a925de79
+```
+
+**What it records is as important as that it records.** A line says a
+demographics call happened, for which `patient_id`, with what outcome — never
+what the call returned. Names, dates of birth, phone numbers, ZIPs, message
+bodies and symptom text are redacted on the way in, and the verifier scans for
+them again on the way out. Two mechanisms, because a redaction gap is silent by
+nature.
+
+`audit/` is gitignored. A real deployment would ship it somewhere append-only.
 
 ## Where the safety argument lives
 

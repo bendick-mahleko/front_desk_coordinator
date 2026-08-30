@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.policy.decorator import current_session
+from app.policy.decorator import current_audit, current_session
 from app.policy.redaction import redact_text
 from app.tools.registry import backends, tool
 from app.tools.schemas import EscalationReason, Priority
@@ -54,6 +54,16 @@ def escalate_to_staff(
         safe_notes,
         # Included only when it is actually known (spec §4.12).
         patient_id=patient_id or session.patient_id,
+    )
+
+    current_audit().note(
+        "escalation",
+        {
+            "ticket_id": ticket.ticket_id,
+            "reason": ticket.reason.value,
+            "priority": ticket.priority.value,
+            "patient_id": ticket.patient_id,
+        },
     )
 
     payload: dict[str, Any] = {

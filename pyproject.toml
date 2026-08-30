@@ -29,6 +29,9 @@ dev = [
     "types-pyyaml>=6.0",
 ]
 
+[project.scripts]
+verify-audit = "app.store.verify:main"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

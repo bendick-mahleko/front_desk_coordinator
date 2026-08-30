@@ -510,7 +510,7 @@ def test_audit_view_redacts_arguments(gate):
 
     assert view["date_of_birth"] == "<dob>"
     assert view["phone_number"] == "<phone>"
-    assert view["first_name"] == "Ada"
+    assert view["first_name"] == "<name>", "a name identifies as surely as a date of birth"
 
 
 # ------------------------------------------------------ schema-enforced rules ---

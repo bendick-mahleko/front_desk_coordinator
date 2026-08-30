@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from sqlalchemy import Engine
 from sqlmodel import Field, SQLModel, create_engine, select
@@ -39,6 +40,28 @@ class SessionRecord(SQLModel, table=True):
     turn_index: int
     payload: str
     """The Session as JSON."""
+
+
+class AuditRow(SQLModel, table=True):
+    """A queryable mirror of the JSONL log.
+
+    The file is authoritative — it is the thing that is hash-chained. This
+    exists so the staff view and the eval runner can ask questions like "every
+    denied call in this session" without parsing a day of JSON.
+    """
+
+    __tablename__ = "audit"
+
+    event_id: str = Field(primary_key=True)
+    ts: str = Field(index=True)
+    session_id: str = Field(index=True)
+    turn: int
+    event: str = Field(index=True)
+    function: str | None = Field(default=None, index=True)
+    outcome: str | None = None
+    latency_ms: int | None = None
+    payload: str
+    """The full record as written, so the row and the line cannot diverge."""
 
 
 def _sqlite_path(url: str) -> Path | None:
@@ -106,6 +129,41 @@ class SessionStore:
             if row is not None:
                 db.delete(row)
                 db.commit()
+
+
+class AuditMirror:
+    """Writes each audit record into SQLite alongside the JSONL file."""
+
+    def __init__(self, engine: Engine | None = None, settings: Settings | None = None) -> None:
+        self._engine = engine or build_engine(settings)
+
+    def mirror(self, record: Any) -> None:
+        with DBSession(self._engine) as db:
+            db.add(
+                AuditRow(
+                    event_id=record.event_id,
+                    ts=record.ts,
+                    session_id=record.session_id,
+                    turn=record.turn,
+                    event=record.event,
+                    function=record.function,
+                    outcome=record.outcome,
+                    latency_ms=record.latency_ms,
+                    payload=record.model_dump_json(exclude_none=True),
+                )
+            )
+            db.commit()
+
+    def for_session(self, session_id: str) -> list[AuditRow]:
+        with DBSession(self._engine) as db:
+            return list(
+                db.exec(
+                    select(AuditRow).where(AuditRow.session_id == session_id).order_by(AuditRow.ts)
+                ).all()
+            )
+
+    def denials(self, session_id: str) -> list[AuditRow]:
+        return [row for row in self.for_session(session_id) if row.outcome == "denied"]
 
 
 def _redacted_payload(session: Session) -> str:

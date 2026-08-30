@@ -11,7 +11,7 @@ from datetime import date
 from typing import Any
 
 from app.config import get_clinic_config
-from app.policy.decorator import current_session
+from app.policy.decorator import current_audit, current_session
 from app.policy.verification import (
     attempts_remaining,
     available_combinations,
@@ -96,6 +96,21 @@ def verify_patient_identity(
         identifier_2_value,
         result,
         clinic,
+    )
+
+    # spec §4.2 — the result, the timestamp and the method reach the audit log.
+    # The values do not, and cannot: only the identifier *types* are passed.
+    current_audit().note(
+        "verification",
+        {
+            "verified": outcome.verified,
+            "methods": [identifier_1_type.value, identifier_2_type.value],
+            "attempts_used": outcome.attempts_used,
+            "attempts_remaining": outcome.attempts_remaining,
+            "locked": outcome.locked,
+            "repeat_attempt": outcome.repeat_of_earlier_attempt,
+            "patient_id": patient_id,
+        },
     )
 
     payload: dict[str, Any] = {

@@ -35,6 +35,7 @@ from app.policy.decorator import session_scope
 from app.policy.gates import PolicyGate, Verdict
 from app.policy.messages import DenialCode
 from app.safety.prescreen import Label, Prescreen, Screening
+from app.store.audit import AuditWriter
 from app.store.session import Session
 from app.tools import registry
 
@@ -95,11 +96,34 @@ class TurnRecorder:
     natural place to notice a model looping on malformed calls.
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        writer: AuditWriter | None = None,
+        mirror: Any = None,
+        session_id: str = "",
+        turn: int = 0,
+    ) -> None:
         self.events: list[TraceEvent] = []
         self.tool_calls: list[str] = []
         self.invalid_calls = 0
         self.denials = 0
+        self._writer = writer
+        self._mirror = mirror
+        self._session_id = session_id
+        self._turn = turn
+        self._started = time.monotonic()
+
+    def _record(self, method: str, *args: Any, **kwargs: Any) -> None:
+        """Emit to the audit log. A logging failure must not take a turn down —
+        but it must be visible rather than silent."""
+        if self._writer is None:
+            return
+        try:
+            record = getattr(self._writer, method)(self._session_id, self._turn, *args, **kwargs)
+            if self._mirror is not None:
+                self._mirror.mirror(record)
+        except Exception:  # noqa: BLE001
+            logger.exception("audit write failed for %s", method)
 
     def gate_decision(self, function: str, verdict: Verdict, session: Session) -> None:
         self.tool_calls.append(function)
@@ -107,18 +131,23 @@ class TurnRecorder:
             self.denials += 1
             if verdict.code is DenialCode.INVALID_ARGUMENTS:
                 self.invalid_calls += 1
+
+        gate = {
+            "decision": "allow" if verdict.allowed else "deny",
+            "required": verdict.required.value if verdict.required else None,
+            "actual": verdict.actual.value if verdict.actual else None,
+            "code": verdict.code.value if verdict.code else None,
+            "rule": verdict.rule,
+        }
         self.events.append(
-            TraceEvent(
-                "gate",
-                {
-                    "function": function,
-                    "allowed": verdict.allowed,
-                    "code": verdict.code.value if verdict.code else None,
-                    "required": verdict.required.value if verdict.required else None,
-                    "actual": verdict.actual.value if verdict.actual else None,
-                    "rule": verdict.rule,
-                },
-            )
+            TraceEvent("gate", {"function": function, "allowed": verdict.allowed, **gate})
+        )
+        self._record(
+            "gate_decision",
+            function,
+            verdict.args.model_dump() if verdict.args else {},
+            gate,
+            latency_ms=int((time.monotonic() - self._started) * 1000),
         )
 
     def tool_result(self, function: str, result: Any, session: Session) -> None:
@@ -132,6 +161,15 @@ class TurnRecorder:
                 },
             )
         )
+        self._record("tool_result", function, result)
+
+    def note(self, kind: str, detail: dict[str, Any]) -> None:
+        """A domain event from inside a tool (P6-T5)."""
+        self.events.append(TraceEvent(kind, dict(detail)))
+        if kind == "verification":
+            self._record("verification", detail, patient_id=detail.get("patient_id"))
+        elif kind == "escalation":
+            self._record("escalation", detail, ticket_id=detail.get("ticket_id", ""))
 
     @property
     def should_break(self) -> bool:
@@ -326,6 +364,8 @@ class Orchestrator:
         settings: Settings | None = None,
         channel: Channel | None = None,
         prescreen: Prescreen | None = None,
+        audit: AuditWriter | None = None,
+        mirror: Any = None,
     ) -> None:
         self._settings = settings or get_settings()
         self._clinic = clinic or get_clinic_config()
@@ -334,6 +374,8 @@ class Orchestrator:
         self._channel = channel or DEFAULT_CHANNEL
         self._gate = PolicyGate(self._clinic)
         self._prescreen = prescreen or Prescreen(self._settings)
+        self._audit = audit
+        self._mirror = mirror
         registry.load()
 
     # ------------------------------------------------------------ prompt ---
@@ -406,8 +448,14 @@ class Orchestrator:
 
     def run_turn(self, session: Session, user_text: str) -> TurnResult:
         session.turn_index += 1
-        recorder = TurnRecorder()
+        recorder = TurnRecorder(
+            writer=self._audit,
+            mirror=self._mirror,
+            session_id=session.session_id,
+            turn=session.turn_index,
+        )
         recorder.events.append(TraceEvent("turn", {"index": session.turn_index}))
+        recorder._record("turn_started")
 
         with (
             session_scope(session, gate=self._gate, audit=recorder),
@@ -416,16 +464,13 @@ class Orchestrator:
             # spec §7 — detection comes before routine scheduling workflows, so
             # this runs before the transcript is even assembled.
             screening = self._prescreen.classify(user_text)
-            recorder.events.append(
-                TraceEvent(
-                    "prescreen",
-                    {
-                        "label": screening.label.value,
-                        "source": screening.source,
-                        "matched": screening.matched,
-                    },
-                )
-            )
+            prescreen_detail = {
+                "label": screening.label.value,
+                "source": screening.source,
+                "matched": screening.matched,
+            }
+            recorder.events.append(TraceEvent("prescreen", prescreen_detail))
+            recorder._record("prescreen", prescreen_detail)
             if screening.is_emergency:
                 return self._emergency(session, user_text, recorder)
 
@@ -437,6 +482,7 @@ class Orchestrator:
             except Exception as exc:  # noqa: BLE001 - surfaced to the patient
                 logger.exception("turn failed")
                 recorder.events.append(TraceEvent("error", {"error": type(exc).__name__}))
+                recorder._record("model_error", type(exc).__name__)
                 return self._finish(session, user_text, FALLBACK_REPLY, recorder, "model_error")
 
             if recorder.should_break:
@@ -444,6 +490,7 @@ class Orchestrator:
                 stopped = "invalid_call_breaker"
             elif outcome.stop_reason == "refusal":
                 recorder.events.append(TraceEvent("refusal", {"category": outcome.refusal}))
+                recorder._record("refusal", outcome.refusal or "unspecified")
                 reply = REFUSAL_REPLY
                 stopped = "refusal"
             else:
@@ -467,6 +514,11 @@ class Orchestrator:
         session.transcript.append({"role": "user", "content": user_text})
         session.transcript.append({"role": "assistant", "content": rendered})
         recorder.events.append(TraceEvent("reply", {"chars": len(rendered)}))
+        recorder._record(
+            "turn_completed",
+            stopped,
+            latency_ms=int((time.monotonic() - recorder._started) * 1000),
+        )
 
         return TurnResult(
             reply=rendered,

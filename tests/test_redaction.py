@@ -45,6 +45,8 @@ FIXTURE_VALUES = [
         ("email", "amara.osei@example.invalid", "<email>"),
         ("address_zip", "98101", "<zip>"),
         ("notes", "Patient sounded upset", "<notes>"),
+        ("first_name", "Amara", "<name>"),
+        ("last_name", "Osei", "<name>"),
     ],
 )
 def test_sensitive_fields_become_type_tokens(field, value, token):
@@ -85,8 +87,11 @@ def test_redact_args_produces_a_log_safe_view():
 
     assert view["date_of_birth"] == "<dob>"
     assert view["phone_number"] == "<phone>"
+    assert view["first_name"] == "<name>"
+    # The clinic-issued reference survives: it is what makes the log traceable.
     assert view["patient_id"] == "PT-4101"
     assert "1978-03-04" not in json.dumps(view)
+    assert "Amara" not in json.dumps(view)
 
 
 # ------------------------------------------------------- pattern sweep ---

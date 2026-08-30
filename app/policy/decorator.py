@@ -77,6 +77,11 @@ class AuditSink(Protocol):
 
     def tool_result(self, function: str, result: Any, session: Session) -> None: ...
 
+    def note(self, kind: str, detail: dict[str, Any]) -> None:
+        """A domain event a tool wants recorded — a verification outcome, an
+        escalation. Generic so adding one does not change every sink."""
+        ...
+
 
 class NullAuditSink:
     """Records nothing. The default until Phase 6 wires the real writer."""
@@ -85,6 +90,9 @@ class NullAuditSink:
         return None
 
     def tool_result(self, function: str, result: Any, session: Session) -> None:
+        return None
+
+    def note(self, kind: str, detail: dict[str, Any]) -> None:
         return None
 
 
