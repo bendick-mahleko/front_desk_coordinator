@@ -1,6 +1,6 @@
 # AI Front Desk Coordinator
 
-Clinic front-desk assistant prototype — AI Engineering Sprint 3.
+Clinic front-desk assistant prototype.
 
 The assistant identifies patient needs, verifies patients, manages appointments,
 checks insurance eligibility, shares clinic information, sends secure messages,
