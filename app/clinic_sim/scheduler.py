@@ -145,11 +145,13 @@ class SimulatedScheduleRepo:
 
     def get_appointments(self, patient_id: str) -> list[Appointment]:
         self._faults.raise_if_error(PORT, "get_appointments")
-        everything = {**self._appointments, **self._booked}
+        # Only _appointments. _booked is the idempotency replay cache, keyed by
+        # request key rather than appointment id — merging it in listed every
+        # keyed booking twice.
         return sorted(
             (
                 appointment
-                for appointment in everything.values()
+                for appointment in self._appointments.values()
                 if appointment.patient_id == patient_id
             ),
             key=lambda item: (item.appointment_date, item.appointment_time),

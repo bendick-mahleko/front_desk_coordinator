@@ -268,6 +268,20 @@ def test_booking_is_idempotent(sim, today):
     assert first.appointment_id == second.appointment_id
 
 
+def test_a_keyed_booking_is_listed_exactly_once(sim, today):
+    """Regression: the idempotency cache is keyed by request, not appointment id,
+    so merging it into the listing showed every keyed booking twice."""
+    slot = sim.schedule.search_slots(
+        AppointmentType.FOLLOW_UP, today, today + timedelta(days=14), Modality.ANY
+    )[0]
+    booked = sim.schedule.book(
+        "PT-4103", slot.slot_date, slot.slot_time, "Review", idempotency_key="k-once"
+    )
+
+    listed = [a.appointment_id for a in sim.schedule.get_appointments("PT-4103")]
+    assert listed.count(booked.appointment_id) == 1
+
+
 def test_cancellation_marks_the_appointment_and_reports_lateness(sim):
     result = sim.schedule.cancel("PT-4101", "AP-77301", "Schedule conflict")
 

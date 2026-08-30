@@ -7,9 +7,10 @@ checks insurance eligibility, shares clinic information, sends secure messages,
 creates new-patient records and escalates to staff. It does not diagnose, triage,
 advise on medication, interpret test results or make billing decisions.
 
-> **Status: Phase 2 — policy core.** Authorization, identity verification and
-> the provenance ledger are implemented and exhaustively tested: 439 tests, no
-> network, no language model. Nothing calls a model yet — that is Phase 4. See
+> **Status: Phase 3 — tool layer.** All fifteen functions are registered as
+> Claude tools, each one behind the policy gate, wired to the simulated clinic
+> backends. A scripted driver books an appointment through the whole path with
+> no model involved: 479 tests, no network. The agent loop is Phase 4. See
 > `IMPLEMENTATION_PLAN.md` for the phase order.
 
 ---
@@ -113,13 +114,16 @@ app/
     models.py      SQLite write-behind
   tools/
     schemas.py     8 enums + 15 argument models — the single schema source
+    registry.py    Composes beta_tool + gate + error normalisation
+    idempotency.py Keys for the five mutating functions
+    patients.py scheduling.py insurance.py messaging.py clinic.py escalation.py
   clinic_sim/      Simulated EHR, scheduler, eligibility, SMS, staff queue
     faults.py      Deterministic fault injection
     fixtures/      24 patients, plans, seeded appointments
   util/dates.py    Date normalisation in clinic time
 ui/
   app.py           Streamlit client
-tests/             439 tests, no network, no model
+tests/             479 tests, no network, no model
 clinic.yaml        Clinic policy and configuration
 ```
 
