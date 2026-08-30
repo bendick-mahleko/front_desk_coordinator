@@ -7,12 +7,24 @@ checks insurance eligibility, shares clinic information, sends secure messages,
 creates new-patient records and escalates to staff. It does not diagnose, triage,
 advise on medication, interpret test results or make billing decisions.
 
-> **Status: Phase 8 — scenario evals.** Twenty-four scripted conversations —
-> the eleven intents of specification §5, seven failure branches and six
-> adversarial probes — asserted against the audit log and run against a live
-> model. See `IMPLEMENTATION_PLAN.md` for the phase order.
+> **Status: v0.1.0 — prototype complete.** All nine phases are built: the
+> policy core, the fifteen tool contracts, the agent loop, safety screening, a
+> hash-chained audit log, the browser UI and 24 scenario evals.
+>
+> **Read [`docs/gaps.md`](docs/gaps.md) before judging whether this is fit for
+> anything.** It is honest about what does not work.
 
 ---
+
+## Where to start
+
+| If you want to… | Read |
+|---|---|
+| run it | this file, below |
+| see it work in eight minutes | [`docs/demo.md`](docs/demo.md) |
+| operate it, break it, read its log | [`docs/runbook.md`](docs/runbook.md) |
+| know what it cannot do | [`docs/gaps.md`](docs/gaps.md) |
+| review the safety argument | `app/policy/gates.py`, then `verification.py` and `provenance.py` |
 
 ## Quick start
 

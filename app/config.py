@@ -199,6 +199,9 @@ class Settings(BaseSettings):
 
     clinic_config_path: Path = Path("clinic.yaml")
     database_url: str = "sqlite:///./data/frontdesk.db"
+    audit_dir: Path = Path("audit")
+    """Where the hash-chained log is written. Gitignored; a real deployment
+    would point this at append-only storage."""
 
     # ------------------------------------------------------------ routing ---
 

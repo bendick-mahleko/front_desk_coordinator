@@ -95,6 +95,41 @@ def test_both_views_start_empty(app_and_sim):
     assert client.get("/staff/queue").json() == []
 
 
+def test_the_served_app_writes_an_audit_log(tmp_path, monkeypatch, clinic, sim):
+    """Regression: it did not.
+
+    Phase 6 built the writer and the eval runner passed one, but create_app
+    constructed an Orchestrator with audit=None — so the running system produced
+    no audit log at all, which is the one thing specification §8 asks for by
+    name. Caught by verifying the demo script rather than trusting it.
+    """
+    from app.config import get_settings, reset_config_cache
+    from app.store.audit import AuditWriter
+
+    monkeypatch.setenv("AUDIT_DIR", str(tmp_path / "audit"))
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    reset_config_cache()
+
+    orchestrator = Orchestrator(
+        sim=sim,
+        clinic=clinic,
+        prescreen=ScriptedPrescreen(),
+        backend=ScriptedBackend(script=[[Call("check_business_hours", {}), Say("Open.")]]),
+        audit=AuditWriter(directory=get_settings().audit_dir),
+    )
+    app = create_app(orchestrator=orchestrator)
+    with TestClient(app) as client:
+        client.post("/chat", json={"message": "are you open?"})
+
+    written = list((tmp_path / "audit").glob("audit-*.jsonl"))
+    assert written, "the served app must write an audit log"
+
+    from app.store.verify import verify_file
+
+    assert verify_file(written[0]).ok
+    reset_config_cache()
+
+
 def test_health_reports_the_model_for_the_sidebar(app_and_sim):
     client, _ = app_and_sim
     body = client.get("/health").json()

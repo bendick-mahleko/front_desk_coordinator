@@ -20,7 +20,8 @@ from sse_starlette.sse import EventSourceResponse
 from app.config import ConfigError, Settings, get_clinic_config, get_settings
 from app.orchestrator import Orchestrator
 from app.policy.redaction import mask_phone
-from app.store.models import SessionStore
+from app.store.audit import AuditWriter
+from app.store.models import AuditMirror, SessionStore
 from app.store.session import Session
 
 logger = logging.getLogger("frontdesk")
@@ -178,7 +179,14 @@ def create_app(orchestrator: Orchestrator | None = None) -> FastAPI:
 
     def _orchestrator() -> Orchestrator:
         if app.state.orchestrator is None:
-            app.state.orchestrator = Orchestrator()
+            # The audit writer has to be wired in here. Phase 6 built it and the
+            # eval runner passes one, but the served application defaulted to
+            # None — so the running system produced no audit log at all, which
+            # is the one thing specification §8 asks for by name.
+            app.state.orchestrator = Orchestrator(
+                audit=AuditWriter(directory=settings.audit_dir),
+                mirror=AuditMirror(),
+            )
         return app.state.orchestrator
 
     def _store() -> SessionStore:
