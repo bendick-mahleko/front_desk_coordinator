@@ -1,0 +1,232 @@
+{
+  "_note": [
+    "Synthetic data. No real person, phone number or address appears here.",
+    "Phone numbers use the 555-01XX range reserved for fiction.",
+    "Two fixtures exist to make specific specification rules testable:",
+    "  PT-4106 / PT-4107  — the same person entered twice (identical name AND",
+    "                       date of birth). check_patient_exists returns two",
+    "                       matches, exercising spec 4.1 ambiguity handling and",
+    "                       spec 4.4 duplicate detection.",
+    "  PT-4108 / PT-4109  — two different people who share a name but not a date",
+    "                       of birth. Proves a name alone never identifies, and",
+    "                       that the date of birth disambiguates correctly."
+  ],
+  "patients": [
+    {
+      "patient_id": "PT-4101",
+      "first_name": "Amara", "last_name": "Osei",
+      "date_of_birth": "1978-03-04",
+      "phone_number": "+12065550142",
+      "email": "amara.osei@example.invalid",
+      "address_line": "418 Larkspur Way", "city": "Riverbend", "state": "WA", "address_zip": "98101",
+      "insurance_plan_name": "BlueRidge PPO", "eligibility_status": "active"
+    },
+    {
+      "patient_id": "PT-4102",
+      "first_name": "Daniel", "last_name": "Whitfield",
+      "date_of_birth": "1965-11-22",
+      "phone_number": "+12065550118",
+      "email": null,
+      "address_line": "77 Alder Court", "city": "Riverbend", "state": "WA", "address_zip": "98052",
+      "insurance_plan_name": "Cascade Health HMO", "eligibility_status": "active"
+    },
+    {
+      "patient_id": "PT-4103",
+      "first_name": "Priya", "last_name": "Raman",
+      "date_of_birth": "1992-07-30",
+      "phone_number": "+12065550167",
+      "email": "p.raman@example.invalid",
+      "address_line": "2201 Foxglove Lane", "city": "Riverbend", "state": "WA", "address_zip": "98004",
+      "insurance_plan_name": "BlueRidge PPO", "eligibility_status": "active"
+    },
+    {
+      "patient_id": "PT-4104",
+      "first_name": "Tomas", "last_name": "Lindgren",
+      "date_of_birth": "1954-01-09",
+      "phone_number": "+12065550193",
+      "email": null,
+      "address_line": "9 Kestrel Row", "city": "Riverbend", "state": "WA", "address_zip": "98109",
+      "insurance_plan_name": "Evergreen Medicare Advantage", "eligibility_status": "active"
+    },
+    {
+      "patient_id": "PT-4105",
+      "first_name": "Grace", "last_name": "Okonkwo",
+      "date_of_birth": "2001-05-18",
+      "phone_number": "+12065550125",
+      "email": "grace.okonkwo@example.invalid",
+      "address_line": "563 Juniper Street", "city": "Riverbend", "state": "WA", "address_zip": "98122",
+      "insurance_plan_name": null, "eligibility_status": "inactive"
+    },
+    {
+      "patient_id": "PT-4106",
+      "first_name": "Maria", "last_name": "Gonzalez",
+      "date_of_birth": "1985-06-14",
+      "phone_number": "+12065550171",
+      "email": "m.gonzalez@example.invalid",
+      "address_line": "1140 Sandpiper Drive", "city": "Riverbend", "state": "WA", "address_zip": "98118",
+      "insurance_plan_name": "Cascade Health HMO", "eligibility_status": "active"
+    },
+    {
+      "patient_id": "PT-4107",
+      "first_name": "Maria", "last_name": "Gonzalez",
+      "date_of_birth": "1985-06-14",
+      "phone_number": "+12065550188",
+      "email": null,
+      "address_line": "1140 Sandpiper Drive", "city": "Riverbend", "state": "WA", "address_zip": "98118",
+      "insurance_plan_name": "Cascade Health HMO", "eligibility_status": "active"
+    },
+    {
+      "patient_id": "PT-4108",
+      "first_name": "James", "last_name": "Carter",
+      "date_of_birth": "1962-02-11",
+      "phone_number": "+12065550104",
+      "email": null,
+      "address_line": "35 Wren Avenue", "city": "Riverbend", "state": "WA", "address_zip": "98107",
+      "insurance_plan_name": "Evergreen Medicare Advantage", "eligibility_status": "active"
+    },
+    {
+      "patient_id": "PT-4109",
+      "first_name": "James", "last_name": "Carter",
+      "date_of_birth": "1990-09-03",
+      "phone_number": "+12065550159",
+      "email": "jcarter90@example.invalid",
+      "address_line": "812 Marigold Place", "city": "Riverbend", "state": "WA", "address_zip": "98115",
+      "insurance_plan_name": "BlueRidge PPO", "eligibility_status": "active"
+    },
+    {
+      "patient_id": "PT-4110",
+      "first_name": "Yusuf", "last_name": "Demir",
+      "date_of_birth": "1988-12-27",
+      "phone_number": "+12065550136",
+      "email": "yusuf.demir@example.invalid",
+      "address_line": "204 Hawthorn Close", "city": "Riverbend", "state": "WA", "address_zip": "98103",
+      "insurance_plan_name": "Cascade Health HMO", "eligibility_status": "active"
+    },
+    {
+      "patient_id": "PT-4111",
+      "first_name": "Eleanor", "last_name": "Boyd",
+      "date_of_birth": "1949-08-05",
+      "phone_number": "+12065550147",
+      "email": null,
+      "address_line": "6 Bramble Terrace", "city": "Riverbend", "state": "WA", "address_zip": "98105",
+      "insurance_plan_name": "Evergreen Medicare Advantage", "eligibility_status": "active"
+    },
+    {
+      "patient_id": "PT-4112",
+      "first_name": "Nathan", "last_name": "Okafor",
+      "date_of_birth": "1995-04-16",
+      "phone_number": "+12065550182",
+      "email": "n.okafor@example.invalid",
+      "address_line": "1523 Sorrel Street", "city": "Riverbend", "state": "WA", "address_zip": "98144",
+      "insurance_plan_name": "BlueRidge PPO", "eligibility_status": "indeterminate"
+    },
+    {
+      "patient_id": "PT-4113",
+      "first_name": "Hana", "last_name": "Sato",
+      "date_of_birth": "1973-10-02",
+      "phone_number": "+12065550110",
+      "email": "hana.sato@example.invalid",
+      "address_line": "88 Willowbank Road", "city": "Riverbend", "state": "WA", "address_zip": "98119",
+      "insurance_plan_name": "Cascade Health HMO", "eligibility_status": "active"
+    },
+    {
+      "patient_id": "PT-4114",
+      "first_name": "Robert", "last_name": "Nkemelu",
+      "date_of_birth": "1981-01-25",
+      "phone_number": "+12065550163",
+      "email": null,
+      "address_line": "740 Cobalt Lane", "city": "Riverbend", "state": "WA", "address_zip": "98126",
+      "insurance_plan_name": "BlueRidge PPO", "eligibility_status": "active"
+    },
+    {
+      "patient_id": "PT-4115",
+      "first_name": "Ingrid", "last_name": "Halvorsen",
+      "date_of_birth": "1968-06-08",
+      "phone_number": "+12065550129",
+      "email": "ingrid.h@example.invalid",
+      "address_line": "312 Quarry Road", "city": "Riverbend", "state": "WA", "address_zip": "98136",
+      "insurance_plan_name": "Cascade Health HMO", "eligibility_status": "inactive"
+    },
+    {
+      "patient_id": "PT-4116",
+      "first_name": "Omar", "last_name": "Haddad",
+      "date_of_birth": "1999-02-19",
+      "phone_number": "+12065550175",
+      "email": "omar.haddad@example.invalid",
+      "address_line": "45 Peregrine Court", "city": "Riverbend", "state": "WA", "address_zip": "98112",
+      "insurance_plan_name": "BlueRidge PPO", "eligibility_status": "active"
+    },
+    {
+      "patient_id": "PT-4117",
+      "first_name": "Beatrice", "last_name": "Mwangi",
+      "date_of_birth": "1957-09-11",
+      "phone_number": "+12065550198",
+      "email": null,
+      "address_line": "1901 Thistle Way", "city": "Riverbend", "state": "WA", "address_zip": "98108",
+      "insurance_plan_name": "Evergreen Medicare Advantage", "eligibility_status": "active"
+    },
+    {
+      "patient_id": "PT-4118",
+      "first_name": "Caleb", "last_name": "Fitzgerald",
+      "date_of_birth": "2004-11-30",
+      "phone_number": "+12065550151",
+      "email": "caleb.f@example.invalid",
+      "address_line": "27 Ember Street", "city": "Riverbend", "state": "WA", "address_zip": "98121",
+      "insurance_plan_name": "Cascade Health HMO", "eligibility_status": "active"
+    },
+    {
+      "patient_id": "PT-4119",
+      "first_name": "Lucia", "last_name": "Ferrari",
+      "date_of_birth": "1986-03-22",
+      "phone_number": "+12065550113",
+      "email": "l.ferrari@example.invalid",
+      "address_line": "654 Verbena Avenue", "city": "Riverbend", "state": "WA", "address_zip": "98117",
+      "insurance_plan_name": "BlueRidge PPO", "eligibility_status": "active"
+    },
+    {
+      "patient_id": "PT-4120",
+      "first_name": "Samuel", "last_name": "Achebe",
+      "date_of_birth": "1971-07-07",
+      "phone_number": "+12065550186",
+      "email": null,
+      "address_line": "119 Foundry Row", "city": "Riverbend", "state": "WA", "address_zip": "98134",
+      "insurance_plan_name": null, "eligibility_status": "indeterminate"
+    },
+    {
+      "patient_id": "PT-4121",
+      "first_name": "Freya", "last_name": "Lindqvist",
+      "date_of_birth": "1993-12-14",
+      "phone_number": "+12065550122",
+      "email": "freya.l@example.invalid",
+      "address_line": "980 Heron Bank", "city": "Riverbend", "state": "WA", "address_zip": "98102",
+      "insurance_plan_name": "Cascade Health HMO", "eligibility_status": "active"
+    },
+    {
+      "patient_id": "PT-4122",
+      "first_name": "Idris", "last_name": "Bello",
+      "date_of_birth": "1960-05-29",
+      "phone_number": "+12065550194",
+      "email": null,
+      "address_line": "51 Cinder Lane", "city": "Riverbend", "state": "WA", "address_zip": "98106",
+      "insurance_plan_name": "Evergreen Medicare Advantage", "eligibility_status": "active"
+    },
+    {
+      "patient_id": "PT-4123",
+      "first_name": "Noor", "last_name": "Rahimi",
+      "date_of_birth": "1997-08-23",
+      "phone_number": "+12065550138",
+      "email": "noor.rahimi@example.invalid",
+      "address_line": "336 Saffron Street", "city": "Riverbend", "state": "WA", "address_zip": "98133",
+      "insurance_plan_name": "BlueRidge PPO", "eligibility_status": "active"
+    },
+    {
+      "patient_id": "PT-4124",
+      "first_name": "Vincent", "last_name": "Aubert",
+      "date_of_birth": "1983-04-01",
+      "phone_number": "+12065550107",
+      "email": "v.aubert@example.invalid",
+      "address_line": "72 Lantern Mews", "city": "Riverbend", "state": "WA", "address_zip": "98116",
+      "insurance_plan_name": "Cascade Health HMO", "eligibility_status": "active"
+    }
+  ]
+}

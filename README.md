@@ -7,9 +7,10 @@ checks insurance eligibility, shares clinic information, sends secure messages,
 creates new-patient records and escalates to staff. It does not diagnose, triage,
 advise on medication, interpret test results or make billing decisions.
 
-> **Status: Phase 0 — project skeleton.** The API serves `/health` and the
-> Streamlit client renders it. Nothing else is built yet. See
-> `IMPLEMENTATION_PLAN.md` for the phase order.
+> **Status: Phase 1 — domain contracts and clinic simulator.** The fifteen
+> function contracts, the five backend ports and their simulated
+> implementations exist and are tested. Nothing calls a language model yet —
+> that is Phase 4. See `IMPLEMENTATION_PLAN.md` for the phase order.
 
 ---
 
@@ -97,17 +98,36 @@ mean running with invented values.
 
 ```
 app/
-  config.py      Settings (.env) + ClinicConfig (clinic.yaml)
-  main.py        FastAPI app, GET /health
+  config.py        Settings (.env) + ClinicConfig (clinic.yaml)
+  main.py          FastAPI app, GET /health
+  ports.py         The five backend protocols + result types
+  tools/
+    schemas.py     8 enums + 15 argument models — the single schema source
+  clinic_sim/      Simulated EHR, scheduler, eligibility, SMS, staff queue
+    faults.py      Deterministic fault injection
+    fixtures/      24 patients, plans, seeded appointments
+  util/dates.py    Date normalisation in clinic time
 ui/
-  app.py         Streamlit client
-tests/
-  test_health.py Phase 0 exit test
-clinic.yaml      Clinic policy and configuration
+  app.py           Streamlit client
+tests/             145 tests, no network, no model
+clinic.yaml        Clinic policy and configuration
 ```
 
-Directories arriving in later phases: `app/policy/`, `app/tools/`,
-`app/clinic_sim/`, `app/store/`, `app/safety/`, `evals/`.
+Directories arriving in later phases: `app/policy/` (Phase 2),
+`app/store/` (Phase 2), `app/safety/` (Phase 5), `evals/` (Phase 8).
+
+### Fixtures worth knowing about
+
+Two patient records exist to make specific rules testable, not by accident:
+
+- **PT-4106 / PT-4107** — the same person entered twice, identical name *and*
+  date of birth. A lookup returns two matches and selects neither.
+- **PT-4108 / PT-4109** — two different people who share a name but not a date
+  of birth, so a name alone never identifies anyone.
+
+The eligibility gateway returns no copay data, also deliberately: spec §4.9
+requires the assistant to explain that limitation and escalate as a billing
+issue, and a fixture that supplied a copay would make that untestable.
 
 ---
 

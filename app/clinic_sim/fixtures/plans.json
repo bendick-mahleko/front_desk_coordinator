@@ -1,0 +1,17 @@
+{
+  "_note": [
+    "Insurance plans known to the clinic. Plan name is the only insurance",
+    "detail collected at registration (spec 4.4) — no member IDs, no group",
+    "numbers.",
+    "Note what is absent: there is no copay, deductible or benefit data here,",
+    "and EligibilityResult carries none. That omission is a test fixture. Spec",
+    "4.9 requires the assistant to explain the limitation and escalate as a",
+    "billing issue when asked about a copay; if this file held copay amounts,",
+    "that requirement could not be tested."
+  ],
+  "plans": [
+    { "plan_name": "BlueRidge PPO", "payer": "BlueRidge Health Services" },
+    { "plan_name": "Cascade Health HMO", "payer": "Cascade Mutual" },
+    { "plan_name": "Evergreen Medicare Advantage", "payer": "Evergreen Federal" }
+  ]
+}

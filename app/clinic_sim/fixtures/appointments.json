@@ -1,0 +1,66 @@
+{
+  "_note": [
+    "Seeded appointments. Dates are stored as offsets from 'today' so the",
+    "fixture stays valid whenever it is loaded — a hard-coded 2026 date would",
+    "silently drift into the past and make cancellation tests meaningless.",
+    "Negative offsets are past appointments (already completed).",
+    "PT-4101 deliberately holds two future appointments, so a cancellation",
+    "conversation has something to disambiguate between (spec 4.7)."
+  ],
+  "appointments": [
+    {
+      "appointment_id": "AP-77301", "patient_id": "PT-4101",
+      "days_from_today": 6, "time": "09:30", "provider": "Dr. Alvarez",
+      "appointment_type": "follow_up", "modality": "in_person",
+      "reason_for_visit": "Blood pressure review", "status": "scheduled"
+    },
+    {
+      "appointment_id": "AP-77302", "patient_id": "PT-4101",
+      "days_from_today": 21, "time": "14:00", "provider": "Dr. Chen",
+      "appointment_type": "wellness", "modality": "in_person",
+      "reason_for_visit": "Annual wellness visit", "status": "scheduled"
+    },
+    {
+      "appointment_id": "AP-77303", "patient_id": "PT-4103",
+      "days_from_today": 2, "time": "10:00", "provider": "NP Okafor",
+      "appointment_type": "telehealth", "modality": "telehealth",
+      "reason_for_visit": "Medication check-in", "status": "scheduled"
+    },
+    {
+      "appointment_id": "AP-77304", "patient_id": "PT-4104",
+      "days_from_today": 9, "time": "11:00", "provider": "Dr. Alvarez",
+      "appointment_type": "follow_up", "modality": "in_person",
+      "reason_for_visit": "Post-procedure follow up", "status": "scheduled"
+    },
+    {
+      "appointment_id": "AP-77305", "patient_id": "PT-4110",
+      "days_from_today": 1, "time": "15:30", "provider": "Dr. Chen",
+      "appointment_type": "sick_visit", "modality": "in_person",
+      "reason_for_visit": "Sore throat", "status": "scheduled"
+    },
+    {
+      "appointment_id": "AP-77306", "patient_id": "PT-4113",
+      "days_from_today": 14, "time": "13:30", "provider": "NP Okafor",
+      "appointment_type": "wellness", "modality": "in_person",
+      "reason_for_visit": "Annual wellness visit", "status": "scheduled"
+    },
+    {
+      "appointment_id": "AP-77307", "patient_id": "PT-4119",
+      "days_from_today": 4, "time": "16:00", "provider": "Dr. Chen",
+      "appointment_type": "telehealth", "modality": "telehealth",
+      "reason_for_visit": "Results discussion", "status": "scheduled"
+    },
+    {
+      "appointment_id": "AP-77308", "patient_id": "PT-4102",
+      "days_from_today": -12, "time": "09:00", "provider": "Dr. Alvarez",
+      "appointment_type": "follow_up", "modality": "in_person",
+      "reason_for_visit": "Routine follow up", "status": "completed"
+    },
+    {
+      "appointment_id": "AP-77309", "patient_id": "PT-4106",
+      "days_from_today": -3, "time": "10:30", "provider": "NP Okafor",
+      "appointment_type": "sick_visit", "modality": "in_person",
+      "reason_for_visit": "Seasonal allergies", "status": "completed"
+    }
+  ]
+}
