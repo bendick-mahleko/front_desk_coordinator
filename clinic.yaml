@@ -56,3 +56,5 @@ policy:
   max_slots_presented: 3
   # TODO(compliance): spec §3 does not say whether verification expires within a session.
   verification_expires_after_minutes: null
+  # spec §7 — what to tell someone to call. Change this outside the US.
+  emergency_number: "911"

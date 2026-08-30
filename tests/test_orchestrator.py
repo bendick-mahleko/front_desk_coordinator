@@ -20,16 +20,27 @@ from app.orchestrator import (
     TurnRecorder,
     _retryable,
 )
+from app.safety.prescreen import Label
 from app.store.session import Session, SubjectStatus
 from app.tools.schemas import AppointmentType, Modality
-from tests.replay import Call, ExplodingBackend, Refuse, Say, ScriptedBackend
+from tests.replay import (
+    Call,
+    ExplodingBackend,
+    Refuse,
+    Say,
+    ScriptedBackend,
+    ScriptedPrescreen,
+)
 
 
 @pytest.fixture
 def orchestrate(sim, clinic):
-    def build(script):
+    def build(script, label=Label.ROUTINE):
         backend = ScriptedBackend(script=script)
-        return Orchestrator(sim=sim, backend=backend, clinic=clinic), backend
+        orchestrator = Orchestrator(
+            sim=sim, backend=backend, clinic=clinic, prescreen=ScriptedPrescreen(label=label)
+        )
+        return orchestrator, backend
 
     return build
 
@@ -102,7 +113,13 @@ def test_the_context_block_falls_back_when_the_model_lacks_the_feature(sim, clin
     monkeypatch.setenv("AGENT_MODEL", "claude-sonnet-5")
     reset_config_cache()
     backend = ScriptedBackend(script=[[Say("hi")]])
-    orchestrator = Orchestrator(sim=sim, backend=backend, clinic=clinic, settings=get_settings())
+    orchestrator = Orchestrator(
+        sim=sim,
+        backend=backend,
+        clinic=clinic,
+        settings=get_settings(),
+        prescreen=ScriptedPrescreen(),
+    )
 
     orchestrator.run_turn(Session(), "hello")
     messages = backend.seen_messages[0]
@@ -279,7 +296,10 @@ def test_a_refusal_stop_reason_is_handled_explicitly(orchestrate):
 
 def test_a_model_failure_becomes_an_apology_and_an_offer(sim, clinic):
     orchestrator = Orchestrator(
-        sim=sim, backend=ExplodingBackend(RuntimeError("boom")), clinic=clinic
+        sim=sim,
+        backend=ExplodingBackend(RuntimeError("boom")),
+        clinic=clinic,
+        prescreen=ScriptedPrescreen(),
     )
     result = orchestrator.run_turn(Session(), "hello")
 
@@ -473,7 +493,11 @@ def client(sim, clinic, monkeypatch):
     backend = ScriptedBackend(
         script=[[Call("check_business_hours", {}), Say("We're open until five.")]]
     )
-    app = create_app(orchestrator=Orchestrator(sim=sim, backend=backend, clinic=clinic))
+    app = create_app(
+        orchestrator=Orchestrator(
+            sim=sim, backend=backend, clinic=clinic, prescreen=ScriptedPrescreen()
+        )
+    )
     with TestClient(app) as test_client:
         yield test_client
 

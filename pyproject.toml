@@ -65,4 +65,5 @@ disallow_untyped_defs = false
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q --strict-markers"
+markers = ["live: hits a real model endpoint; excluded from the default run"]
 asyncio_mode = "auto"

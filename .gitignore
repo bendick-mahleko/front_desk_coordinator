@@ -24,6 +24,9 @@ data/
 audit/
 *.jsonl
 
+# office lock files — never committable
+.~lock.*#
+
 # editors / os
 .idea/
 .vscode/

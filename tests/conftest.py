@@ -18,6 +18,37 @@ from app.config import get_clinic_config, reset_config_cache
 PINNED_TODAY = date(2026, 9, 7)
 
 
+class LiveCallAttempted(BaseException):
+    """Raised when a test reaches the network. Deliberately not an Exception."""
+
+
+@pytest.fixture(autouse=True)
+def _no_live_model_calls(request, monkeypatch):
+    """Fail loudly if a test reaches the model.
+
+    Phase 5 added a classifier that runs on every turn, and it quietly made the
+    whole suite hit the network — slow, costly and non-deterministic, while
+    still passing. A guard is the only way that stays fixed.
+
+    Mark a test ``@pytest.mark.live`` to opt out.
+    """
+    if request.node.get_closest_marker("live"):
+        return
+
+    import anthropic._base_client as base
+
+    def blocked(self, *args, **kwargs):
+        # BaseException, not Exception: production code catches Exception
+        # broadly so a model outage cannot take a turn down, and that would
+        # swallow this guard and leave it silently useless.
+        raise LiveCallAttempted(
+            "this test tried to call the model. Inject a stub backend or "
+            "ScriptedPrescreen, or mark the test @pytest.mark.live."
+        )
+
+    monkeypatch.setattr(base.SyncAPIClient, "request", blocked)
+
+
 @pytest.fixture(scope="session")
 def clinic():
     reset_config_cache()

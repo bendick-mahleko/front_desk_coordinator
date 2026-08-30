@@ -34,6 +34,7 @@ from app.config import ClinicConfig, Settings, get_clinic_config, get_settings
 from app.policy.decorator import session_scope
 from app.policy.gates import PolicyGate, Verdict
 from app.policy.messages import DenialCode
+from app.safety.prescreen import Label, Prescreen, Screening
 from app.store.session import Session
 from app.tools import registry
 
@@ -297,6 +298,22 @@ REFUSAL_REPLY = "I'm not able to help with that one. Let me pass you to a member
 
 BREAKER_REPLY = "I'm having trouble completing that request. Let me hand you to a member of staff."
 
+EMERGENCY_COPY = (
+    "This sounds like it could be a medical emergency, and I'm not able to help with "
+    "that over chat.\n\n"
+    "Please call {emergency_number} now, or go to your nearest emergency department. "
+    "If someone is with you, ask them to help.\n\n"
+    "I've alerted our clinical staff so they know you've been in touch."
+)
+
+ADVICE_REINFORCEMENT = (
+    "This message may be asking for clinical advice. Do not diagnose, interpret "
+    "symptoms or results, advise on medication, or say how urgent something is. "
+    "Decline plainly and hand over with escalate_to_staff."
+)
+
+STAFF_REINFORCEMENT = "This message is asking for a person. Honour it: call escalate_to_staff."
+
 
 class Orchestrator:
     """Owns one turn: prompt assembly, the loop, and persistence."""
@@ -308,6 +325,7 @@ class Orchestrator:
         clinic: ClinicConfig | None = None,
         settings: Settings | None = None,
         channel: Channel | None = None,
+        prescreen: Prescreen | None = None,
     ) -> None:
         self._settings = settings or get_settings()
         self._clinic = clinic or get_clinic_config()
@@ -315,6 +333,7 @@ class Orchestrator:
         self._backend = backend or AnthropicBackend(self._settings)
         self._channel = channel or DEFAULT_CHANNEL
         self._gate = PolicyGate(self._clinic)
+        self._prescreen = prescreen or Prescreen(self._settings)
         registry.load()
 
     # ------------------------------------------------------------ prompt ---
@@ -331,6 +350,7 @@ class Orchestrator:
             .read_text(encoding="utf-8")
             .format(
                 clinic_name=self._clinic.name,
+                emergency_number=self._clinic.policy.emergency_number,
                 today=now.strftime("%A, %d %B %Y"),
                 clinic_time=now.strftime("%H:%M"),
                 timezone=self._clinic.timezone,
@@ -344,14 +364,24 @@ class Orchestrator:
             }
         ]
 
-    def _context_block(self, session: Session) -> str:
-        return (
+    def _context_block(self, session: Session, screening: Screening) -> str:
+        block = (
             f"Session status: {session.status.value}. "
             f"Turn {session.turn_index}. "
             f"Channel: {self._channel.name}."
         )
+        # The pre-screen's finding is reinforcement, not enforcement — the
+        # refusal set is in the system prompt and the gate is in code. This just
+        # means the model is not seeing the message cold.
+        if screening.label is Label.CLINICAL_ADVICE:
+            block = f"{block} {ADVICE_REINFORCEMENT}"
+        elif screening.label is Label.STAFF_REQUEST:
+            block = f"{block} {STAFF_REINFORCEMENT}"
+        return block
 
-    def build_messages(self, session: Session, user_text: str) -> list[dict[str, Any]]:
+    def build_messages(
+        self, session: Session, user_text: str, screening: Screening | None = None
+    ) -> list[dict[str, Any]]:
         """Transcript, the new user turn, then the volatile context — last.
 
         The context goes after everything cacheable. Putting it in the system
@@ -360,7 +390,7 @@ class Orchestrator:
         messages: list[dict[str, Any]] = [*session.transcript]
         messages.append({"role": "user", "content": user_text})
 
-        context = self._context_block(session)
+        context = self._context_block(session, screening or Screening(Label.ROUTINE, "keyword"))
         if self._settings.agent_model in SUPPORTS_MID_CONVERSATION_SYSTEM:
             # The operator channel: not attributable to the patient, so it
             # cannot be spoofed by something they typed.
@@ -379,13 +409,29 @@ class Orchestrator:
         recorder = TurnRecorder()
         recorder.events.append(TraceEvent("turn", {"index": session.turn_index}))
 
-        messages = self.build_messages(session, user_text)
-        system = self.system_blocks()
-
         with (
             session_scope(session, gate=self._gate, audit=recorder),
             registry.backend_scope(self._sim),
         ):
+            # spec §7 — detection comes before routine scheduling workflows, so
+            # this runs before the transcript is even assembled.
+            screening = self._prescreen.classify(user_text)
+            recorder.events.append(
+                TraceEvent(
+                    "prescreen",
+                    {
+                        "label": screening.label.value,
+                        "source": screening.source,
+                        "matched": screening.matched,
+                    },
+                )
+            )
+            if screening.is_emergency:
+                return self._emergency(session, user_text, recorder)
+
+            messages = self.build_messages(session, user_text, screening)
+            system = self.system_blocks()
+
             try:
                 outcome = self._backend.run(system=system, messages=messages, recorder=recorder)
             except Exception as exc:  # noqa: BLE001 - surfaced to the patient
@@ -429,6 +475,28 @@ class Orchestrator:
             stopped_early=stopped,
             usage=usage or {},
         )
+
+    def _emergency(self, session: Session, user_text: str, recorder: TurnRecorder) -> TurnResult:
+        """Short-circuit. The agent loop is never entered.
+
+        Escalation goes through the real tool rather than straight to the
+        backend, so the gate runs and the ticket is audited exactly like any
+        other call — an emergency is the last place to want an untraced path.
+        """
+        tools = registry.load()
+        tools["escalate_to_staff"].call(
+            {
+                "reason": "complex_symptoms",
+                "priority": "emergency",
+                "notes": (
+                    "Possible medical emergency detected in chat. Patient advised to "
+                    "contact emergency services. No scheduling was attempted."
+                ),
+                "patient_id": session.patient_id,
+            }
+        )
+        reply = EMERGENCY_COPY.format(emergency_number=self._clinic.policy.emergency_number)
+        return self._finish(session, user_text, reply, recorder, "emergency")
 
     def stream_turn(self, session: Session, user_text: str) -> Iterator[dict[str, Any]]:
         """Emit trace events, then the reply, for the SSE endpoint.

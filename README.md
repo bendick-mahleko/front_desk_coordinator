@@ -7,11 +7,10 @@ checks insurance eligibility, shares clinic information, sends secure messages,
 creates new-patient records and escalates to staff. It does not diagnose, triage,
 advise on medication, interpret test results or make billing decisions.
 
-> **Status: Phase 4 — agent loop.** `POST /chat` runs a turn against Claude and
-> streams trace events and the reply over SSE. 509 tests, none of which call the
-> API: a recorded-transcript backend drives the loop while the registry, gate,
-> ledger and simulator all run for real. Emergency pre-screening is Phase 5.
-> See `IMPLEMENTATION_PLAN.md` for the phase order.
+> **Status: Phase 5 — safety subsystem.** Emergencies are screened before the
+> agent loop runs, refusals route to staff, and symptom collection is minimised.
+> 567 tests, none of which call the API. Audit and the UI are Phases 6–7. See
+> `IMPLEMENTATION_PLAN.md` for the phase order.
 
 ---
 
@@ -138,8 +137,12 @@ app/
   main.py          FastAPI app: GET /health, POST /chat (SSE)
   orchestrator.py  The turn lifecycle, prompt layering, agent loop
   channel.py       Channel abstraction; only text is built
+  safety/
+    prescreen.py   Emergency screening, ahead of the loop
+    refusals.py    Six refused topics -> escalation reasons
   prompts/
     system.md      The system prompt
+    classifier.md  The four-label pre-screen prompt
   ports.py         The five backend protocols + result types
   policy/
     gates.py       The §3 authorization table + the four-check evaluator
@@ -162,7 +165,7 @@ app/
   util/dates.py    Date normalisation in clinic time
 ui/
   app.py           Streamlit client
-tests/             509 tests, no network, no model
+tests/             567 tests, no network, no model
   replay.py        Recorded-transcript backend, so tests need no API
 clinic.yaml        Clinic policy and configuration
 ```
@@ -184,6 +187,27 @@ requires the assistant to explain that limitation and escalate as a billing
 issue, and a fixture that supplied a copay would make that untestable.
 
 ---
+
+## Safety
+
+Two independent layers screen every inbound message *before* the agent loop
+runs, because a model deep in a booking flow is exactly where an emergency gets
+missed:
+
+1. **A keyword fast path** — deterministic, instant, and independent of the
+   model, so unambiguous emergency language is caught even during a classifier
+   outage. It is guarded against past-tense phrasing: without that, anyone with
+   a cardiac history could not book an appointment.
+2. **A Haiku classifier** for everything the keywords leave open, returning one
+   of `emergency`, `clinical_advice`, `staff_request`, `routine`.
+
+An `emergency` label short-circuits the turn entirely: the agent loop is never
+entered, no scheduling function can run, fixed safety copy is returned, and an
+emergency ticket is queued *through the gate* so it is audited like any other
+call.
+
+The emergency number is `clinic.yaml` policy, not a constant — `911` is wrong
+everywhere outside the US.
 
 ## Where the safety argument lives
 

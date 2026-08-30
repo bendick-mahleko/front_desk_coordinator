@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from app.orchestrator import ModelTurn, TurnRecorder
+from app.safety.prescreen import Label, Screening, keyword_screen
 from app.tools import registry
 
 
@@ -110,6 +111,25 @@ class ScriptedBackend:
             usage=usage,
             stop_reason="end_turn",
         )
+
+
+@dataclass
+class ScriptedPrescreen:
+    """A pre-screen with no model behind it.
+
+    The keyword layer is real — it is deterministic by design — and everything
+    it does not settle returns a label the test chose.
+    """
+
+    label: Label = Label.ROUTINE
+    seen: list[str] = field(default_factory=list)
+
+    def classify(self, text: str) -> Screening:
+        self.seen.append(text)
+        fast = keyword_screen(text)
+        if fast is not None:
+            return fast
+        return Screening(self.label, source="model")
 
 
 @dataclass

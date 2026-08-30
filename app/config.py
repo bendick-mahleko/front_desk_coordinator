@@ -94,6 +94,9 @@ class PolicyConfig(BaseModel):
     late_cancellation_notice: str
     max_slots_presented: int = Field(default=3, ge=1, le=5)
     verification_expires_after_minutes: int | None = None
+    emergency_number: str = "911"
+    """What the assistant tells someone to call. US default; this is data, not a
+    constant, because it is wrong everywhere else."""
 
 
 class ClinicConfig(BaseModel):
