@@ -28,6 +28,28 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 LocationKey = Literal["main_clinic", "satellite_office"]
 
+OPENROUTER_BASE_URL = "https://openrouter.ai/api"
+"""The SDK appends ``/v1/messages``, so the base stops at ``/api``.
+
+OpenRouter exposes an Anthropic-native Messages endpoint, not just an
+OpenAI-compatible one, so the first-party SDK works against it unchanged —
+tools, strict schemas, adaptive thinking, effort, prompt caching and
+mid-conversation system messages all pass through the translation."""
+
+OPENROUTER_MODEL_IDS: dict[str, str] = {
+    "claude-opus-5": "anthropic/claude-opus-5",
+    "claude-opus-4-8": "anthropic/claude-opus-4.8",
+    "claude-opus-4-7": "anthropic/claude-opus-4.7",
+    "claude-sonnet-5": "anthropic/claude-sonnet-5",
+    "claude-sonnet-4-6": "anthropic/claude-sonnet-4.6",
+    "claude-haiku-4-5": "anthropic/claude-haiku-4.5",
+    "claude-fable-5": "anthropic/claude-fable-5",
+}
+"""First-party model ids to their OpenRouter slugs.
+
+Note Haiku: ``claude-haiku-4-5`` first-party, ``claude-haiku-4.5`` on
+OpenRouter. Hyphen versus dot, and getting it wrong is a 404."""
+
 WEEKDAYS = (
     "monday",
     "tuesday",
@@ -149,11 +171,16 @@ class Settings(BaseSettings):
     api_base_url: str = "http://localhost:8000"
     log_level: str = "INFO"
 
-    # Credentials. Either may be blank — the SDK also resolves a profile stored
-    # by `ant auth login`, which credential_source() checks for separately.
+    # Credentials. Any may be blank — the SDK also resolves a profile stored by
+    # `ant auth login`, which credential_source() checks for separately.
     anthropic_api_key: str | None = None
     anthropic_auth_token: str | None = None
+    openrouter_api_key: str | None = None
     strict_credentials: bool = False
+
+    model_provider: Literal["auto", "anthropic", "openrouter"] = "auto"
+    """Where model calls go. "auto" prefers a first-party Anthropic credential
+    and falls back to OpenRouter when only that key is present."""
 
     agent_model: str = "claude-opus-5"
     classifier_model: str = "claude-haiku-4-5"
@@ -162,10 +189,45 @@ class Settings(BaseSettings):
     holds up; raise it if the Phase 8 evals show routing errors."""
 
     server_side_fallbacks: bool = True
-    """Route around a safety refusal rather than returning an empty turn."""
+    """Route around a safety refusal rather than returning an empty turn.
+
+    Ignored on OpenRouter, whose translation rejects the ``fallbacks`` parameter
+    and its beta flag with a 400. See ``fallbacks_enabled``."""
 
     clinic_config_path: Path = Path("clinic.yaml")
     database_url: str = "sqlite:///./data/frontdesk.db"
+
+    # ------------------------------------------------------------ routing ---
+
+    @property
+    def provider(self) -> Literal["anthropic", "openrouter"]:
+        if self.model_provider != "auto":
+            return self.model_provider
+        if self.anthropic_api_key or self.anthropic_auth_token:
+            return "anthropic"
+        if self.openrouter_api_key:
+            return "openrouter"
+        # No explicit key: the SDK may still resolve an `ant auth login` profile.
+        return "anthropic"
+
+    @property
+    def fallbacks_enabled(self) -> bool:
+        """Server-side refusal fallbacks are a first-party feature only."""
+        return self.server_side_fallbacks and self.provider == "anthropic"
+
+    def route_model(self, model: str) -> str:
+        """Translate a first-party model id for the configured provider."""
+        if self.provider != "openrouter" or "/" in model:
+            return model
+        return OPENROUTER_MODEL_IDS.get(model, f"anthropic/{model}")
+
+    def client_kwargs(self) -> dict[str, Any]:
+        """Constructor arguments for the Anthropic SDK client."""
+        if self.provider == "openrouter":
+            if not self.openrouter_api_key:
+                raise ConfigError("model_provider is openrouter but OPENROUTER_API_KEY is unset")
+            return {"api_key": self.openrouter_api_key, "base_url": OPENROUTER_BASE_URL}
+        return {}
 
     @property
     def resolved_clinic_config_path(self) -> Path:
@@ -183,6 +245,8 @@ class Settings(BaseSettings):
             return "ANTHROPIC_API_KEY"
         if self.anthropic_auth_token:
             return "ANTHROPIC_AUTH_TOKEN"
+        if self.openrouter_api_key:
+            return "OPENROUTER_API_KEY"
         profile_dir = Path(os.path.expanduser("~")) / ".config" / "anthropic"
         if profile_dir.is_dir() and any(profile_dir.iterdir()):
             return "ant profile"
@@ -193,8 +257,8 @@ class Settings(BaseSettings):
         source = self.credential_source()
         if source is None:
             raise ConfigError(
-                "No Anthropic credential found. Set ANTHROPIC_API_KEY in .env, "
-                "or run `ant auth login`."
+                "No model credential found. Set ANTHROPIC_API_KEY or "
+                "OPENROUTER_API_KEY in .env, or run `ant auth login`."
             )
         return source
 

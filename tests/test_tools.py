@@ -7,6 +7,7 @@ Phase 4 adds is conversation.
 
 from __future__ import annotations
 
+import json
 from datetime import timedelta
 
 import pytest
@@ -35,7 +36,8 @@ def running(sim, clinic, session):
 
 
 def call(tools, name, **kwargs):
-    return tools[name].call(kwargs)
+    """A tool returns the JSON string that goes into the tool_result block."""
+    return json.loads(tools[name].call(kwargs))
 
 
 # ------------------------------------------------------ the booking flow ---

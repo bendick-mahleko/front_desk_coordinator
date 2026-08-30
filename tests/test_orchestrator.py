@@ -362,7 +362,7 @@ class _FakeClient:
         self.beta = type("beta", (), {"messages": _FakeMessages()})()
 
 
-def test_the_live_request_is_shaped_correctly():
+def test_the_first_party_request_is_shaped_correctly():
     """Covers the real request without spending a token.
 
     Everything here is a documented API constraint rather than a preference:
@@ -370,11 +370,14 @@ def test_the_live_request_is_shaped_correctly():
     output_config rather than at the top level, and the fallback beta has to
     accompany the fallbacks parameter.
     """
+    from app.config import Settings
     from app.orchestrator import AnthropicBackend
 
     client = _FakeClient()
-    backend = AnthropicBackend(client=client)
-    backend.run(system=[{"type": "text", "text": "s"}], messages=[], recorder=TurnRecorder())
+    settings = Settings(anthropic_api_key="k", model_provider="anthropic")
+    AnthropicBackend(settings=settings, client=client).run(
+        system=[{"type": "text", "text": "s"}], messages=[], recorder=TurnRecorder()
+    )
 
     kwargs = client.beta.messages.kwargs
     assert kwargs["model"] == "claude-opus-5"
@@ -387,12 +390,63 @@ def test_the_live_request_is_shaped_correctly():
     assert kwargs["system"][0]["text"] == "s"
 
 
+def test_the_openrouter_request_translates_the_model_and_drops_fallbacks():
+    """OpenRouter speaks the Anthropic Messages API, with two differences.
+
+    The model id is namespaced, and the fallbacks parameter is rejected with a
+    400 — so it must be omitted rather than merely ignored.
+    """
+    from app.config import Settings
+    from app.orchestrator import AnthropicBackend
+
+    client = _FakeClient()
+    settings = Settings(openrouter_api_key="sk-or-x", model_provider="openrouter")
+    AnthropicBackend(settings=settings, client=client).run(
+        system=[], messages=[], recorder=TurnRecorder()
+    )
+
+    kwargs = client.beta.messages.kwargs
+    assert kwargs["model"] == "anthropic/claude-opus-5"
+    assert "fallbacks" not in kwargs
+    assert "betas" not in kwargs
+    # Everything else survives the translation — verified against the live API.
+    assert kwargs["thinking"] == {"type": "adaptive"}
+    assert kwargs["output_config"]["effort"] == "medium"
+
+
+def test_openrouter_client_is_pointed_at_the_right_base_url():
+    from app.config import OPENROUTER_BASE_URL, Settings
+
+    settings = Settings(openrouter_api_key="sk-or-x", model_provider="openrouter")
+    kwargs = settings.client_kwargs()
+
+    # The SDK appends /v1/messages, so the base must stop at /api.
+    assert kwargs["base_url"] == OPENROUTER_BASE_URL == "https://openrouter.ai/api"
+    assert kwargs["api_key"] == "sk-or-x"
+
+
+def test_first_party_client_takes_no_overrides():
+    from app.config import Settings
+
+    assert Settings(anthropic_api_key="k", model_provider="anthropic").client_kwargs() == {}
+
+
+def test_haiku_maps_to_a_dotted_slug_on_openrouter():
+    """claude-haiku-4-5 first-party, claude-haiku-4.5 on OpenRouter."""
+    from app.config import Settings
+
+    settings = Settings(openrouter_api_key="sk-or-x", model_provider="openrouter")
+    assert settings.route_model("claude-haiku-4-5") == "anthropic/claude-haiku-4.5"
+
+
 def test_fallbacks_can_be_turned_off(monkeypatch):
     from app.config import Settings
     from app.orchestrator import AnthropicBackend
 
     client = _FakeClient()
-    settings = Settings(server_side_fallbacks=False, anthropic_api_key="k")
+    settings = Settings(
+        server_side_fallbacks=False, anthropic_api_key="k", model_provider="anthropic"
+    )
     AnthropicBackend(settings=settings, client=client).run(
         system=[], messages=[], recorder=TurnRecorder()
     )

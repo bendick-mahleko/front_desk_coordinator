@@ -177,12 +177,15 @@ class AnthropicBackend:
             import anthropic
 
             self._settings.require_credentials()
-            self._client = anthropic.Anthropic()
+            # Empty for first-party; api_key + base_url when routed via
+            # OpenRouter, whose Anthropic-native endpoint the SDK speaks
+            # unchanged.
+            self._client = anthropic.Anthropic(**self._settings.client_kwargs())
         return self._client
 
     def _request(self, system: list[dict[str, Any]], messages: list[dict[str, Any]]) -> Any:
         kwargs: dict[str, Any] = {
-            "model": self._settings.agent_model,
+            "model": self._settings.route_model(self._settings.agent_model),
             "max_tokens": MAX_TOKENS,
             "system": system,
             "messages": messages,
@@ -193,9 +196,10 @@ class AnthropicBackend:
             "thinking": {"type": "adaptive"},
             "output_config": {"effort": self._settings.effort},
         }
-        if self._settings.server_side_fallbacks:
+        if self._settings.fallbacks_enabled:
             # Routes by refusal category so a declined request still gets an
-            # answer rather than an empty turn.
+            # answer rather than an empty turn. First-party only: OpenRouter
+            # rejects the parameter and its beta flag with a 400.
             kwargs["betas"] = ["server-side-fallback-2026-07-01"]
             kwargs["fallbacks"] = "default"
         return self.client.beta.messages.tool_runner(**kwargs)

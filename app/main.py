@@ -50,6 +50,8 @@ class HealthResponse(BaseModel):
     service: str
     version: str
     environment: str
+    provider: str
+    agent_model: str
     checks: HealthChecks
     detail: list[str] = []
 
@@ -75,6 +77,8 @@ def run_health_checks() -> HealthResponse:
             service="unknown",
             version="unknown",
             environment="unknown",
+            provider="unknown",
+            agent_model="unknown",
             checks=HealthChecks(settings="error", clinic_config="error", model_credentials="error"),
             detail=[f"settings: {exc}"],
         )
@@ -98,6 +102,9 @@ def run_health_checks() -> HealthResponse:
     else:
         credential_status = "ok"
         detail.append(f"model_credentials: found via {source}")
+        detail.append(
+            f"model_routing: {settings.provider} -> {settings.route_model(settings.agent_model)}"
+        )
 
     checks = HealthChecks(
         settings=settings_status,
@@ -111,6 +118,8 @@ def run_health_checks() -> HealthResponse:
         service=settings.app_name,
         version=settings.version,
         environment=settings.environment,
+        provider=settings.provider,
+        agent_model=settings.route_model(settings.agent_model),
         checks=checks,
         detail=detail,
     )

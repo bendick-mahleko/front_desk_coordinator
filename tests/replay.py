@@ -12,6 +12,7 @@ scripted turn exercises the same code a live turn does.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -93,7 +94,7 @@ class ScriptedBackend:
             if isinstance(action, Call):
                 # Through .call(), so the gate, the ledger and the audit sink all
                 # behave exactly as they would under the real runner.
-                self.results.append(tools[action.name].call(action.args))
+                self.results.append(json.loads(tools[action.name].call(action.args)))
                 if recorder.should_break:
                     break
             elif isinstance(action, Refuse):

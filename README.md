@@ -68,12 +68,37 @@ Two files, deliberately separate:
 Clinic policy is data. The verification attempt limit and the late-cancellation
 window are values in `clinic.yaml`, not constants in the source.
 
-### Credentials
+### Credentials and provider
 
-`ANTHROPIC_API_KEY` in `.env` is one option; a profile stored by `ant auth login`
-is another, and the SDK resolves it automatically. `/health` reports which source
-it found. If neither exists the API still starts and logs a loud error — set
-`STRICT_CREDENTIALS=true` to make it refuse to start instead.
+Three ways to authenticate, in the order `MODEL_PROVIDER=auto` prefers them:
+
+| Source | Provider used |
+|---|---|
+| `ANTHROPIC_API_KEY` in `.env` | Anthropic, first party |
+| a profile from `ant auth login` | Anthropic, first party |
+| `OPENROUTER_API_KEY` in `.env` | OpenRouter |
+
+`/health` reports which source it found and where calls are routed. If none
+exists the API still starts and logs a loud error — set `STRICT_CREDENTIALS=true`
+to make it refuse to start instead.
+
+**OpenRouter** serves an Anthropic-native Messages endpoint, so the first-party
+SDK works against it unchanged: the tool runner, strict tool schemas, adaptive
+thinking, `output_config.effort`, prompt caching and mid-conversation system
+messages all survive the translation — verified against the live API. Two
+differences are handled for you:
+
+- **Model ids are namespaced.** `claude-opus-5` becomes
+  `anthropic/claude-opus-5`. Note Haiku changes shape too — `claude-haiku-4-5`
+  first-party, `claude-haiku-4.5` on OpenRouter.
+- **Server-side refusal fallbacks are unavailable.** OpenRouter rejects the
+  `fallbacks` parameter with a 400, so it is omitted rather than merely ignored.
+
+If OpenRouter returns `No endpoints available matching your guardrail
+restrictions and data policy`, that is an account setting rather than a bug:
+enable the required data policy at <https://openrouter.ai/settings/privacy>.
+Some models need it and others do not — Haiku 4.5 works without it, Opus 5 and
+Sonnet 5 do not.
 
 ---
 

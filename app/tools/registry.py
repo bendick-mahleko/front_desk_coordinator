@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import functools
 import inspect
+import json
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -146,7 +147,16 @@ def normalise_errors(name: str) -> Callable[[Callable[..., Any]], Callable[..., 
 
 
 def serialise(fn: Callable[..., Any]) -> Callable[..., Any]:
-    """Render a result as JSON-safe values for the model.
+    """Render a result as a JSON **string** for the tool_result block.
+
+    The runner puts a tool's return value straight into
+    ``{"type": "tool_result", "content": <value>}``, and the Messages API
+    accepts a string or a list of content blocks there — not a bare object.
+    Returning a dict happened to work against the first-party endpoint but is
+    not a shape the schema permits, and a stricter implementation rejects the
+    *next* request in the loop with a validation error that points at the
+    message rather than at the tool. Serialising here makes the shape correct
+    everywhere.
 
     Runs outside the gate on purpose: the provenance ledger absorbs identifiers
     from real result objects, so converting to JSON any earlier would leave it
@@ -166,8 +176,8 @@ def serialise(fn: Callable[..., Any]) -> Callable[..., Any]:
     """
 
     @functools.wraps(fn)
-    def inner(**kwargs: Any) -> Any:
-        return _to_json(fn(**kwargs))
+    def inner(**kwargs: Any) -> str:
+        return json.dumps(_to_json(fn(**kwargs)), default=str)
 
     del inner.__wrapped__
     inner.__signature__ = inspect.Signature(  # type: ignore[attr-defined]

@@ -48,8 +48,8 @@ def test_health_reports_service_identity(client):
 
 def test_missing_credential_degrades_but_still_serves(monkeypatch):
     """A missing key must be visible, not silent — and must not brick the app."""
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
+    for var in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "OPENROUTER_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
     monkeypatch.setattr("pathlib.Path.is_dir", lambda self: False)
     reset_config_cache()
 
@@ -62,8 +62,8 @@ def test_missing_credential_degrades_but_still_serves(monkeypatch):
 
 
 def test_strict_credentials_refuses_to_start(monkeypatch):
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
+    for var in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "OPENROUTER_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
     monkeypatch.setenv("STRICT_CREDENTIALS", "true")
     monkeypatch.setattr("pathlib.Path.is_dir", lambda self: False)
     reset_config_cache()
