@@ -1,0 +1,12 @@
+# Normalise to LF in the repository. Windows checkouts still get CRLF for
+# editing, but the Dockerfile, the CI workflow and the shell-adjacent files
+# reach Linux with the line endings they expect.
+* text=auto eol=lf
+
+# Binary / generated — never diff or normalise.
+uv.lock linguist-generated=true
+*.png binary
+*.jpg binary
+*.pdf binary
+*.db binary
+*.sqlite3 binary

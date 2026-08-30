@@ -1,0 +1,58 @@
+# Clinic configuration — policy is data, not code (design AD-01 / §4).
+# Values here are prototype defaults. Every entry marked TODO needs a real
+# decision from the clinic before anything resembling a deployment.
+
+name: "Riverbend Family Health"
+timezone: "America/New_York"
+
+# Weekly hours. A day with open/close null is closed.
+hours:
+  monday:    { open: "08:00", close: "17:00" }
+  tuesday:   { open: "08:00", close: "17:00" }
+  wednesday: { open: "08:00", close: "17:00" }
+  thursday:  { open: "08:00", close: "19:00" }
+  friday:    { open: "08:00", close: "16:00" }
+  saturday:  { open: "09:00", close: "13:00" }
+  sunday:    { open: null,    close: null }
+
+# Dates the clinic is closed regardless of the weekly pattern.
+holidays:
+  - "2026-11-26"
+  - "2026-12-25"
+  - "2027-01-01"
+
+# Only these two location keys are valid (spec §4.11).
+locations:
+  main_clinic:
+    name: "Riverbend Family Health — Main Clinic"
+    address: "1420 Cedar Street, Riverbend"
+    parking: "Free surface lot on the north side of the building."
+    accessibility: "Step-free entrance on Cedar Street; accessible restrooms on both floors."
+  satellite_office:
+    name: "Riverbend Family Health — Satellite Office"
+    address: "88 Mill Road, Riverbend"
+    parking: "Street parking on Mill Road; two accessible bays at the entrance."
+    accessibility: "Ground floor only; step-free throughout."
+
+# Colloquial names resolve to a location key ONLY through this map (spec §4.11).
+# Empty by default: an unmapped colloquial name must not be guessed at.
+# TODO(clinic ops): confirm which informal names patients actually use.
+location_aliases: {}
+
+providers:
+  - "Dr. Alvarez"
+  - "Dr. Chen"
+  - "NP Okafor"
+
+policy:
+  # TODO(privacy officer): spec §4.2 says "according to clinic policy" but gives no number.
+  verification_attempt_limit: 3
+  # TODO(practice management): spec §4.7 requires disclosure but defines no window or fee.
+  late_cancellation_hours: 24
+  late_cancellation_notice: >-
+    Cancelling less than 24 hours before your appointment may be recorded as a
+    late cancellation on your record.
+  # spec §4.5 — "present a limited number of suitable choices at once, such as three".
+  max_slots_presented: 3
+  # TODO(compliance): spec §3 does not say whether verification expires within a session.
+  verification_expires_after_minutes: null

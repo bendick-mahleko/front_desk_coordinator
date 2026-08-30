@@ -1,0 +1,40 @@
+services:
+  app:
+    build: .
+    image: front-desk-coordinator:dev
+    container_name: frontdesk-app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    environment:
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ENVIRONMENT: ${ENVIRONMENT:-dev}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      STRICT_CREDENTIALS: ${STRICT_CREDENTIALS:-false}
+      CLINIC_CONFIG_PATH: /srv/clinic.yaml
+      DATABASE_URL: sqlite:////srv/data/frontdesk.db
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./clinic.yaml:/srv/clinic.yaml:ro
+      - frontdesk-data:/srv/data
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import httpx,sys; sys.exit(0 if httpx.get('http://localhost:8000/health').status_code==200 else 1)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  ui:
+    build: .
+    image: front-desk-coordinator:dev
+    container_name: frontdesk-ui
+    command: streamlit run ui/app.py --server.port 8501 --server.address 0.0.0.0
+    environment:
+      API_BASE_URL: http://app:8000
+    ports:
+      - "8501:8501"
+    depends_on:
+      app:
+        condition: service_healthy
+
+volumes:
+  frontdesk-data:
