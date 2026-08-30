@@ -7,10 +7,10 @@ checks insurance eligibility, shares clinic information, sends secure messages,
 creates new-patient records and escalates to staff. It does not diagnose, triage,
 advise on medication, interpret test results or make billing decisions.
 
-> **Status: Phase 1 — domain contracts and clinic simulator.** The fifteen
-> function contracts, the five backend ports and their simulated
-> implementations exist and are tested. Nothing calls a language model yet —
-> that is Phase 4. See `IMPLEMENTATION_PLAN.md` for the phase order.
+> **Status: Phase 2 — policy core.** Authorization, identity verification and
+> the provenance ledger are implemented and exhaustively tested: 439 tests, no
+> network, no language model. Nothing calls a model yet — that is Phase 4. See
+> `IMPLEMENTATION_PLAN.md` for the phase order.
 
 ---
 
@@ -101,6 +101,16 @@ app/
   config.py        Settings (.env) + ClinicConfig (clinic.yaml)
   main.py          FastAPI app, GET /health
   ports.py         The five backend protocols + result types
+  policy/
+    gates.py       The §3 authorization table + the four-check evaluator
+    verification.py  Identity state machine, attempt limits, lockout
+    provenance.py  The identifier ledger
+    redaction.py   PHI redaction and output masking
+    messages.py    Patient-safe denial vocabulary
+    decorator.py   @gated — where a call is actually stopped
+  store/
+    session.py     Session state; the only thing the gate may reason about
+    models.py      SQLite write-behind
   tools/
     schemas.py     8 enums + 15 argument models — the single schema source
   clinic_sim/      Simulated EHR, scheduler, eligibility, SMS, staff queue
@@ -109,12 +119,12 @@ app/
   util/dates.py    Date normalisation in clinic time
 ui/
   app.py           Streamlit client
-tests/             145 tests, no network, no model
+tests/             439 tests, no network, no model
 clinic.yaml        Clinic policy and configuration
 ```
 
-Directories arriving in later phases: `app/policy/` (Phase 2),
-`app/store/` (Phase 2), `app/safety/` (Phase 5), `evals/` (Phase 8).
+Directories arriving in later phases: `app/safety/` (Phase 5), `evals/`
+(Phase 8). `app/orchestrator.py` and the agent loop arrive in Phase 4.
 
 ### Fixtures worth knowing about
 
@@ -131,9 +141,9 @@ issue, and a fixture that supplied a copay would make that untestable.
 
 ---
 
-## Where the safety argument will live
+## Where the safety argument lives
 
-From Phase 2 onward, three files carry it:
+Three files carry it:
 
 - `app/policy/gates.py` — the authorization table from specification §3
 - `app/policy/verification.py` — the identity state machine
@@ -141,7 +151,12 @@ From Phase 2 onward, three files carry it:
 
 If those are correct and the `@gated` decorator is applied to all fifteen tool
 functions, no prompt change and no model behaviour can produce an unauthorised
-disclosure.
+disclosure. The decorator stops execution rather than annotating it: a denied
+call returns a structured result the model must recover from, and the tool body
+never runs.
+
+Reviewing them is the highest-value hour anyone can spend on this repo. Start
+with `TOOL_POLICY` in `gates.py` — it is specification §3, expressed once.
 
 ---
 

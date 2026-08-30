@@ -1,0 +1,127 @@
+"""Patient-safe denial vocabulary.
+
+Specification §3 rule 5: a failed verification must not reveal protected
+information. That constrains the *wording* of every refusal, not just the
+verification one — "that ZIP does not match the 98101 we have on file" fails the
+rule while sounding helpful.
+
+So denial text is drawn from a fixed vocabulary. Nothing here interpolates a
+record value, and nothing may be added that does. ``test_redaction.py`` asserts
+that no fixture value appears in any string in this module.
+
+These strings are what the *model* receives as the denial. The model then says
+something natural to the patient; it is not required to read these aloud. What
+matters is that even a model repeating them verbatim discloses nothing.
+"""
+
+from __future__ import annotations
+
+from enum import StrEnum
+
+
+class DenialCode(StrEnum):
+    """The four checks of design §7, in the order they run."""
+
+    INVALID_ARGUMENTS = "invalid_arguments"
+    VERIFICATION_REQUIRED = "verification_required"
+    UNKNOWN_REFERENCE = "unknown_reference"
+    PRECONDITION_FAILED = "precondition_failed"
+    UNKNOWN_FUNCTION = "unknown_function"
+
+
+DENIAL_MESSAGES: dict[DenialCode, str] = {
+    DenialCode.INVALID_ARGUMENTS: "The call was not valid for this function.",
+    DenialCode.VERIFICATION_REQUIRED: (
+        "This information is not available until the patient's identity has been verified."
+    ),
+    DenialCode.UNKNOWN_REFERENCE: (
+        "That reference did not come from a result in this conversation."
+    ),
+    DenialCode.PRECONDITION_FAILED: "A required earlier step has not been completed.",
+    DenialCode.UNKNOWN_FUNCTION: "That function is not available.",
+}
+
+
+class Remedy(StrEnum):
+    """What the assistant should do next. One key per recoverable situation."""
+
+    IDENTIFY_FIRST = "identify_first"
+    VERIFY_FIRST = "verify_first"
+    COLLECT_SECOND_IDENTIFIER = "collect_second_identifier"
+    TRY_DIFFERENT_IDENTIFIERS = "try_different_identifiers"
+    ESCALATE_LOCKED = "escalate_locked"
+    ESCALATE_DUPLICATE = "escalate_duplicate"
+    CHECK_EXISTENCE_FIRST = "check_existence_first"
+    LOOK_UP_APPOINTMENTS = "look_up_appointments"
+    SEARCH_SLOTS_FIRST = "search_slots_first"
+    CONFIRM_SERVICE_DATE = "confirm_service_date"
+    CONFIRM_PHONE_NUMBER = "confirm_phone_number"
+    UNKNOWN_LOCATION = "unknown_location"
+    FIX_ARGUMENTS = "fix_arguments"
+    DISAMBIGUATE = "disambiguate"
+
+
+REMEDIES: dict[Remedy, str] = {
+    Remedy.IDENTIFY_FIRST: (
+        "Collect the patient's first name, last name and date of birth, then call "
+        "check_patient_exists."
+    ),
+    Remedy.VERIFY_FIRST: (
+        "Verify the patient with verify_patient_identity before requesting protected information."
+    ),
+    Remedy.COLLECT_SECOND_IDENTIFIER: (
+        "Ask the patient for a second identifier of a different type: date of birth, "
+        "phone number or ZIP code."
+    ),
+    Remedy.TRY_DIFFERENT_IDENTIFIERS: (
+        "That combination has already been tried. Offer a different pair of identifier "
+        "types, or escalate to staff."
+    ),
+    Remedy.ESCALATE_LOCKED: (
+        "The verification attempt limit has been reached. Do not ask for more "
+        "identifiers. Call escalate_to_staff so a person can help."
+    ),
+    Remedy.ESCALATE_DUPLICATE: (
+        "A possible duplicate record was found. Do not create a new record. Call "
+        "escalate_to_staff so a person can resolve it."
+    ),
+    Remedy.CHECK_EXISTENCE_FIRST: (
+        "Call check_patient_exists before creating a record, so a duplicate is not created."
+    ),
+    Remedy.LOOK_UP_APPOINTMENTS: (
+        "Call get_patient_appointments to find the appointment before changing it."
+    ),
+    Remedy.SEARCH_SLOTS_FIRST: (
+        "Call search_available_appointments and offer the patient a returned slot. Only "
+        "a time from those results can be booked."
+    ),
+    Remedy.CONFIRM_SERVICE_DATE: (
+        "Take the date of service from a booked appointment, or ask the patient to "
+        "confirm it, before checking eligibility."
+    ),
+    Remedy.CONFIRM_PHONE_NUMBER: (
+        "Confirm with the patient that the destination number is theirs before sending."
+    ),
+    Remedy.UNKNOWN_LOCATION: (
+        "That location is not configured. Offer the clinic locations that are, or "
+        "escalate to staff."
+    ),
+    Remedy.FIX_ARGUMENTS: "Correct the arguments and call the function again.",
+    Remedy.DISAMBIGUATE: (
+        "More than one record matched. Ask only for permitted disambiguating "
+        "information, or transfer to staff. Do not choose between the records."
+    ),
+}
+
+
+def denial_message(code: DenialCode) -> str:
+    return DENIAL_MESSAGES[code]
+
+
+def remedy_text(remedy: Remedy) -> str:
+    return REMEDIES[remedy]
+
+
+def all_patient_facing_strings() -> list[str]:
+    """Everything this module can emit. The redaction tripwire test reads this."""
+    return [*DENIAL_MESSAGES.values(), *REMEDIES.values()]
