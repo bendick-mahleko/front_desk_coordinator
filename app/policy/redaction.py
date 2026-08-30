@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from collections.abc import Callable
 from datetime import date, datetime, time
 from typing import Any
 
@@ -163,6 +164,48 @@ _MASKERS = {
     "address_zip": mask_zip,
     "email": mask_email,
 }
+
+
+# Output masking is deliberately narrower than redaction, and the difference
+# matters. A redactor may over-fire — a token in a log costs nothing. A masker
+# that over-fires corrupts what the patient reads.
+#
+# Phone numbers and email addresses have unambiguous shapes and no legitimate
+# unmasked use in a reply, so they are masked. Dates and bare five-digit numbers
+# are *not*: "September 13, 2026" is an appointment the patient needs, and
+# AP-77301 is an appointment id. Masking those would make the assistant unable
+# to confirm a booking.
+#
+# Dates of birth in output are handled by the system prompt, which instructs the
+# model to mask them, and by the test that checks it does.
+_OUTPUT_MASKS: tuple[tuple[re.Pattern[str], Callable[[str], str]], ...] = (
+    (re.compile(r"(?:\+?1[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}\b"), mask_phone),
+    (re.compile(r"\b[\w.+-]+@[\w-]+\.[\w.-]+\b"), mask_email),
+)
+
+
+def mask_contact_details(text: str) -> str:
+    """Mask phone numbers and email addresses the assistant echoes back.
+
+    Defence in depth under the model: the prompt tells it to mask, and this
+    makes sure a forgetful turn still cannot print a full number on screen.
+    """
+    for pattern, masker in _OUTPUT_MASKS:
+        text = pattern.sub(_substituter(masker), text)
+    return text
+
+
+def _substituter(masker: Callable[[str], str]) -> Callable[[re.Match[str]], str]:
+    """Bind the masker explicitly.
+
+    A bare closure over the loop variable would resolve to whatever it held
+    last if the callable ever outlived the iteration.
+    """
+
+    def replace(match: re.Match[str]) -> str:
+        return masker(match.group(0))
+
+    return replace
 
 
 def mask(kind: str, value: Any) -> str:

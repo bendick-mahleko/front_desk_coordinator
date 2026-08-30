@@ -11,7 +11,7 @@ import json
 import logging
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
-from typing import Literal
+from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
@@ -19,6 +19,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from app.config import ConfigError, Settings, get_clinic_config, get_settings
 from app.orchestrator import Orchestrator
+from app.policy.redaction import mask_phone
 from app.store.models import SessionStore
 from app.store.session import Session
 
@@ -215,6 +216,37 @@ def create_app(orchestrator: Orchestrator | None = None) -> FastAPI:
             _store().save(session)
 
         return EventSourceResponse(stream())
+
+    @app.get("/outbox", tags=["clinic"])
+    def outbox() -> list[dict[str, Any]]:
+        """Messages the assistant has sent. Nothing leaves the machine."""
+        sim = _orchestrator().simulator
+        return [
+            {
+                "message_id": receipt.message_id,
+                "phone_number": mask_phone(receipt.phone_number),
+                "message_type": receipt.message_type.value,
+                "delivery_status": receipt.delivery_status.value,
+                "sent_at": receipt.sent_at.isoformat(),
+            }
+            for receipt in reversed(sim.messages.outbox())
+        ]
+
+    @app.get("/staff/queue", tags=["clinic"])
+    def staff_queue() -> list[dict[str, Any]]:
+        """Open escalations, newest first."""
+        sim = _orchestrator().simulator
+        return [
+            {
+                "ticket_id": ticket.ticket_id,
+                "reason": ticket.reason.value,
+                "priority": ticket.priority.value,
+                "notes": ticket.notes,
+                "patient_id": ticket.patient_id,
+                "created_at": ticket.created_at.isoformat(),
+            }
+            for ticket in reversed(sim.staff.tickets())
+        ]
 
     @app.get("/session/{session_id}", response_model=SessionSummary, tags=["chat"])
     def session_summary(session_id: str) -> SessionSummary:

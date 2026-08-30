@@ -18,7 +18,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
-from app.policy.redaction import mask
+from app.policy.redaction import mask, mask_contact_details
 
 
 @dataclass(frozen=True)
@@ -51,7 +51,13 @@ class TextChannel:
     capabilities = Capabilities(spoken=False, overhearable=False, supports_masking=True)
 
     def render(self, text: str) -> str:
-        return text
+        """Everything the patient sees passes through here.
+
+        The model is instructed to mask identifiers it repeats back, and it
+        does. This is the layer that holds when it forgets — the same reason the
+        gate exists rather than trusting the prompt (AD-01).
+        """
+        return mask_contact_details(text)
 
     def mask_identifier(self, kind: str, value: str) -> str:
         """Shorten an identifier the assistant repeats back (spec §4.2).

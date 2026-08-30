@@ -23,6 +23,23 @@ class LiveCallAttempted(BaseException):
 
 
 @pytest.fixture(autouse=True)
+def _isolate_from_dotenv(monkeypatch):
+    """Tests read the shipped defaults, never a developer's local .env.
+
+    A .env is normal during development — it is how you point the app at a
+    different model or provider. Without this, whether the suite passes depends
+    on what happens to be in an untracked file, which is the worst kind of
+    flake: it reproduces for one person and nobody else.
+    """
+    from app.config import Settings
+
+    monkeypatch.setitem(Settings.model_config, "env_file", None)
+    reset_config_cache()
+    yield
+    reset_config_cache()
+
+
+@pytest.fixture(autouse=True)
 def _no_live_model_calls(request, monkeypatch):
     """Fail loudly if a test reaches the model.
 

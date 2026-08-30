@@ -7,10 +7,9 @@ checks insurance eligibility, shares clinic information, sends secure messages,
 creates new-patient records and escalates to staff. It does not diagnose, triage,
 advise on medication, interpret test results or make billing decisions.
 
-> **Status: Phase 6 — audit and observability.** Every gate decision, tool
-> result, verification, escalation and refusal is written to a hash-chained,
-> append-only log that `verify-audit` can check for tampering. 598 tests, none
-> of which call the API. The UI is Phase 7. See `IMPLEMENTATION_PLAN.md` for the
+> **Status: Phase 7 — user interface.** Chat, the live policy-gate trace, the
+> SMS outbox and the staff queue, driveable in a browser. 618 tests, none of
+> which call the API. Evals are Phase 8. See `IMPLEMENTATION_PLAN.md` for the
 > phase order.
 
 ---
@@ -169,8 +168,11 @@ app/
     fixtures/      24 patients, plans, seeded appointments
   util/dates.py    Date normalisation in clinic time
 ui/
-  app.py           Streamlit client
-tests/             598 tests, no network, no model
+  app.py           Chat, session badge, layout
+  trace.py         The policy-gate panel — the demo surface
+  outbox.py        Sent messages and delivery status
+  queue.py         Staff escalations
+tests/             619 tests, no network, no model
   replay.py        Recorded-transcript backend, so tests need no API
 clinic.yaml        Clinic policy and configuration
 ```
@@ -213,6 +215,23 @@ call.
 
 The emergency number is `clinic.yaml` policy, not a constant — `911` is wrong
 everywhere outside the US.
+
+## The interface
+
+Chat on the left, the gate's reasoning on the right. Every function call the
+model proposed appears in the trace panel with the level it needed, the level
+the session had, the rule it was decided under, and how long it took — denials
+expanded by default. Two more tabs show the SMS outbox and the staff queue.
+
+The panel renders the *redacted* view, the same one the audit log stores: a
+demo surface is not a back door around the redactor.
+
+Identifiers the assistant echoes back are masked before they reach the screen.
+That masking is deliberately narrower than the log redactor — phone numbers and
+email addresses only. A redactor may over-fire, since a token in a log costs
+nothing; a masker that over-fires corrupts what the patient reads, and masking
+"September 13, 2026" or `AP-77301` would leave the assistant unable to confirm
+a booking.
 
 ## The audit log
 

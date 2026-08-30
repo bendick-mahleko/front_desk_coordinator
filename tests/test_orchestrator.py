@@ -394,7 +394,11 @@ def test_the_first_party_request_is_shaped_correctly():
     from app.orchestrator import AnthropicBackend
 
     client = _FakeClient()
-    settings = Settings(anthropic_api_key="k", model_provider="anthropic")
+    # The model is pinned rather than left to the default: a developer with a
+    # local .env would otherwise turn this red for no reason.
+    settings = Settings(
+        anthropic_api_key="k", model_provider="anthropic", agent_model="claude-opus-5"
+    )
     AnthropicBackend(settings=settings, client=client).run(
         system=[{"type": "text", "text": "s"}], messages=[], recorder=TurnRecorder()
     )
@@ -420,7 +424,9 @@ def test_the_openrouter_request_translates_the_model_and_drops_fallbacks():
     from app.orchestrator import AnthropicBackend
 
     client = _FakeClient()
-    settings = Settings(openrouter_api_key="sk-or-x", model_provider="openrouter")
+    settings = Settings(
+        openrouter_api_key="sk-or-x", model_provider="openrouter", agent_model="claude-opus-5"
+    )
     AnthropicBackend(settings=settings, client=client).run(
         system=[], messages=[], recorder=TurnRecorder()
     )
@@ -449,6 +455,18 @@ def test_first_party_client_takes_no_overrides():
     from app.config import Settings
 
     assert Settings(anthropic_api_key="k", model_provider="anthropic").client_kwargs() == {}
+
+
+def test_the_shipped_default_model_is_opus_5():
+    """Asserted against the shipped defaults, not whatever .env happens to say.
+
+    A local .env is normal during development; the suite must not depend on
+    its absence.
+    """
+    from app.config import Settings
+
+    assert Settings(_env_file=None).agent_model == "claude-opus-5"
+    assert Settings(_env_file=None).classifier_model == "claude-haiku-4-5"
 
 
 def test_haiku_maps_to_a_dotted_slug_on_openrouter():

@@ -34,6 +34,7 @@ from app.config import ClinicConfig, Settings, get_clinic_config, get_settings
 from app.policy.decorator import session_scope
 from app.policy.gates import PolicyGate, Verdict
 from app.policy.messages import DenialCode
+from app.policy.redaction import redact_args
 from app.safety.prescreen import Label, Prescreen, Screening
 from app.store.audit import AuditWriter
 from app.store.session import Session
@@ -139,16 +140,23 @@ class TurnRecorder:
             "code": verdict.code.value if verdict.code else None,
             "rule": verdict.rule,
         }
+        latency_ms = int((time.monotonic() - self._started) * 1000)
+        raw_args = verdict.args.model_dump() if verdict.args else {}
         self.events.append(
-            TraceEvent("gate", {"function": function, "allowed": verdict.allowed, **gate})
+            TraceEvent(
+                "gate",
+                {
+                    "function": function,
+                    "allowed": verdict.allowed,
+                    # The same redacted view the audit log gets. The trace panel
+                    # is a demo surface, not a back door around the redactor.
+                    "args": redact_args(raw_args),
+                    "latency_ms": latency_ms,
+                    **gate,
+                },
+            )
         )
-        self._record(
-            "gate_decision",
-            function,
-            verdict.args.model_dump() if verdict.args else {},
-            gate,
-            latency_ms=int((time.monotonic() - self._started) * 1000),
-        )
+        self._record("gate_decision", function, raw_args, gate, latency_ms=latency_ms)
 
     def tool_result(self, function: str, result: Any, session: Session) -> None:
         self.events.append(
@@ -377,6 +385,11 @@ class Orchestrator:
         self._audit = audit
         self._mirror = mirror
         registry.load()
+
+    @property
+    def simulator(self) -> ClinicSimulator:
+        """The clinic backends, for the read-only staff views."""
+        return self._sim
 
     # ------------------------------------------------------------ prompt ---
 
