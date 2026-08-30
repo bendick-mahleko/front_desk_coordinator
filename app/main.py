@@ -7,15 +7,20 @@ tells you what is wrong instead of failing later inside a conversation.
 
 from __future__ import annotations
 
+import json
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from typing import Literal
 
-from fastapi import FastAPI
-from pydantic import BaseModel
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel, Field
+from sse_starlette.sse import EventSourceResponse
 
 from app.config import ConfigError, Settings, get_clinic_config, get_settings
+from app.orchestrator import Orchestrator
+from app.store.models import SessionStore
+from app.store.session import Session
 
 logger = logging.getLogger("frontdesk")
 
@@ -26,6 +31,18 @@ class HealthChecks(BaseModel):
     settings: CheckStatus
     clinic_config: CheckStatus
     model_credentials: CheckStatus
+
+
+class ChatRequest(BaseModel):
+    message: str = Field(min_length=1, max_length=4000)
+    session_id: str | None = None
+
+
+class SessionSummary(BaseModel):
+    session_id: str
+    status: str
+    turn_index: int
+    patient_id: str | None
 
 
 class HealthResponse(BaseModel):
@@ -135,7 +152,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("shutting down")
 
 
-def create_app() -> FastAPI:
+def create_app(orchestrator: Orchestrator | None = None) -> FastAPI:
     settings = get_settings()
     app = FastAPI(
         title=settings.app_name,
@@ -143,6 +160,62 @@ def create_app() -> FastAPI:
         summary="Clinic front-desk assistant prototype",
         lifespan=lifespan,
     )
+    # Built lazily: constructing an Orchestrator loads the clinic simulator and
+    # would make /health unreachable if anything about it were misconfigured.
+    app.state.orchestrator = orchestrator
+    app.state.sessions = {}
+    app.state.store = None
+
+    def _orchestrator() -> Orchestrator:
+        if app.state.orchestrator is None:
+            app.state.orchestrator = Orchestrator()
+        return app.state.orchestrator
+
+    def _store() -> SessionStore:
+        if app.state.store is None:
+            app.state.store = SessionStore()
+        return app.state.store
+
+    def _session(session_id: str | None) -> Session:
+        if session_id is None:
+            session = Session()
+        elif session_id in app.state.sessions:
+            session = app.state.sessions[session_id]
+        else:
+            loaded = _store().load(session_id)
+            if loaded is None:
+                raise HTTPException(status_code=404, detail="unknown session")
+            session = loaded
+        app.state.sessions[session.session_id] = session
+        return session
+
+    @app.post("/chat", tags=["chat"])
+    def chat(request: ChatRequest) -> EventSourceResponse:
+        """Run one turn, streaming trace events then the reply.
+
+        Server-sent events rather than a plain JSON reply: the trace is what
+        makes the gate visible in a demo, and it arrives as the turn happens.
+        """
+        session = _session(request.session_id)
+        orchestrator = _orchestrator()
+
+        def stream() -> Iterator[dict[str, str]]:
+            yield {"event": "session", "data": json.dumps({"session_id": session.session_id})}
+            for event in orchestrator.stream_turn(session, request.message):
+                yield {"event": event["kind"], "data": json.dumps(event, default=str)}
+            _store().save(session)
+
+        return EventSourceResponse(stream())
+
+    @app.get("/session/{session_id}", response_model=SessionSummary, tags=["chat"])
+    def session_summary(session_id: str) -> SessionSummary:
+        session = _session(session_id)
+        return SessionSummary(
+            session_id=session.session_id,
+            status=session.status.value,
+            turn_index=session.turn_index,
+            patient_id=session.patient_id,
+        )
 
     @app.get("/health", response_model=HealthResponse, tags=["ops"])
     def health() -> HealthResponse:

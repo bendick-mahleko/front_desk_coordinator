@@ -157,6 +157,12 @@ class Settings(BaseSettings):
 
     agent_model: str = "claude-opus-5"
     classifier_model: str = "claude-haiku-4-5"
+    effort: Literal["low", "medium", "high", "xhigh", "max"] = "medium"
+    """Thinking depth. Front-desk routing is constrained enough that medium
+    holds up; raise it if the Phase 8 evals show routing errors."""
+
+    server_side_fallbacks: bool = True
+    """Route around a safety refusal rather than returning an empty turn."""
 
     clinic_config_path: Path = Path("clinic.yaml")
     database_url: str = "sqlite:///./data/frontdesk.db"

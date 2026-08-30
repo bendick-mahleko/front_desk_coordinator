@@ -7,11 +7,11 @@ checks insurance eligibility, shares clinic information, sends secure messages,
 creates new-patient records and escalates to staff. It does not diagnose, triage,
 advise on medication, interpret test results or make billing decisions.
 
-> **Status: Phase 3 — tool layer.** All fifteen functions are registered as
-> Claude tools, each one behind the policy gate, wired to the simulated clinic
-> backends. A scripted driver books an appointment through the whole path with
-> no model involved: 479 tests, no network. The agent loop is Phase 4. See
-> `IMPLEMENTATION_PLAN.md` for the phase order.
+> **Status: Phase 4 — agent loop.** `POST /chat` runs a turn against Claude and
+> streams trace events and the reply over SSE. 509 tests, none of which call the
+> API: a recorded-transcript backend drives the loop while the registry, gate,
+> ledger and simulator all run for real. Emergency pre-screening is Phase 5.
+> See `IMPLEMENTATION_PLAN.md` for the phase order.
 
 ---
 
@@ -26,6 +26,16 @@ uv run streamlit run ui/app.py --server.port 8501
 ```
 
 API at <http://localhost:8000> (docs at `/docs`), UI at <http://localhost:8501>.
+
+Talk to it:
+
+```bash
+curl -N -X POST http://localhost:8000/chat   -H 'Content-Type: application/json'   -d '{"message":"are you open now?"}'
+```
+
+The response is a server-sent event stream: one `gate` event per policy
+decision, one `result` per tool call, then `done` with the reply. The trace is
+the point — it is what makes the gate visible while the conversation happens.
 
 ### With Docker
 
@@ -100,7 +110,11 @@ mean running with invented values.
 ```
 app/
   config.py        Settings (.env) + ClinicConfig (clinic.yaml)
-  main.py          FastAPI app, GET /health
+  main.py          FastAPI app: GET /health, POST /chat (SSE)
+  orchestrator.py  The turn lifecycle, prompt layering, agent loop
+  channel.py       Channel abstraction; only text is built
+  prompts/
+    system.md      The system prompt
   ports.py         The five backend protocols + result types
   policy/
     gates.py       The §3 authorization table + the four-check evaluator
@@ -123,7 +137,8 @@ app/
   util/dates.py    Date normalisation in clinic time
 ui/
   app.py           Streamlit client
-tests/             479 tests, no network, no model
+tests/             509 tests, no network, no model
+  replay.py        Recorded-transcript backend, so tests need no API
 clinic.yaml        Clinic policy and configuration
 ```
 
