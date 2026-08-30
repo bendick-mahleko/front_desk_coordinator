@@ -1,0 +1,8 @@
+name: intent_03_what_appointments
+kind: intent
+spec: "spec §5 — What appointments do I have?"
+turns:
+  - "What appointments do I have? I'm Amara Osei, born 1978-03-04."
+  - "My zip is 98101 and my phone number is 206-555-0142."
+expect_tools: [check_patient_exists, verify_patient_identity, get_patient_appointments]
+expect_status: verified

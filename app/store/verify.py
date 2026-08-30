@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from app.policy.redaction import contains_protected_data
+from app.policy.redaction import SAFE_REFERENCE_FIELDS, contains_protected_data
 from app.store.audit import GENESIS_HASH, AuditRecord
 
 SCAN_EXEMPT = frozenset(
@@ -127,7 +127,10 @@ def _pii_leak(line: str) -> str | None:
     """
     payload = json.loads(line)
     for field_name, value in payload.items():
-        if field_name in SCAN_EXEMPT:
+        # SAFE_REFERENCE_FIELDS is checked here as well as inside _strings:
+        # session_id sits at the top level, and a random hex id occasionally
+        # contains five consecutive digits, which reads as a ZIP to the sweep.
+        if field_name in SCAN_EXEMPT or field_name in SAFE_REFERENCE_FIELDS:
             continue
         for text in _strings(value):
             if contains_protected_data(text):
@@ -136,11 +139,20 @@ def _pii_leak(line: str) -> str | None:
 
 
 def _strings(node: Any) -> Iterator[str]:
-    """Every string leaf. Keys and non-string scalars are not patient data."""
+    """Every string leaf, skipping clinic-issued references wherever they sit.
+
+    A reference is exempt because of what it *is*, not where it appears: an
+    appointment id (AP-77301) contains five digits and a slot id
+    (SL-2026-09-07-1-1) contains a date, and neither is a fact about a person.
+    Exempting only the top-level ``refs`` block left the same identifiers
+    tripping the scan inside ``args``.
+    """
     if isinstance(node, str):
         yield node
     elif isinstance(node, dict):
-        for item in node.values():
+        for key, item in node.items():
+            if key in SAFE_REFERENCE_FIELDS:
+                continue
             yield from _strings(item)
     elif isinstance(node, list | tuple):
         for item in node:

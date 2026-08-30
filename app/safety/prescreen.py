@@ -141,7 +141,9 @@ class Prescreen:
     def _ask_model(self, text: str) -> Label:
         response = self.client.messages.create(
             model=self._settings.route_model(self._settings.classifier_model),
-            max_tokens=8,
+            # Eight truncated a reply like "The label is clinical_advice"
+            # mid-word, which then matched nothing and fell back to routine.
+            max_tokens=24,
             system=self._prompt,
             messages=[{"role": "user", "content": text}],
         )

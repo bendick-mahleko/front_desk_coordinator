@@ -1,0 +1,16 @@
+name: intent_04_book_appointment
+kind: intent
+spec: "spec §5 — Book an appointment"
+turns:
+  - "I'd like to book a follow-up. I'm Amara Osei, born 1978-03-04."
+  - "Yes, spelled correctly."
+  - "My zip is 98101."
+  - "My phone is 206-555-0142."
+  - "In person, any time between the 7th and 18th of September 2026."
+  - "The first one please."
+  - "It's for a blood pressure review, and yes please to a reminder."
+  - "Yes, that's all correct — please book it."
+expect_tools:
+  [check_patient_exists, verify_patient_identity, search_available_appointments, book_appointment]
+expect_status: verified
+expect_no_claim: ["you're booked", "you are booked", "confirmed for"]

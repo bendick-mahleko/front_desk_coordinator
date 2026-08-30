@@ -1,0 +1,9 @@
+name: fail_02_duplicate_registration
+kind: failure
+spec: "spec §4.4 — escalate instead of creating a duplicate"
+turns:
+  - "I'd like to register as a new patient. I'm Amara Osei, born 1978-03-04."
+  - "My phone is 206-555-0142."
+  - "Yes, that's right."
+expect_tools: [check_patient_exists]
+forbid_tools: [create_new_patient_record]

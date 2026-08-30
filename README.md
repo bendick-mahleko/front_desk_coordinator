@@ -7,10 +7,10 @@ checks insurance eligibility, shares clinic information, sends secure messages,
 creates new-patient records and escalates to staff. It does not diagnose, triage,
 advise on medication, interpret test results or make billing decisions.
 
-> **Status: Phase 7 — user interface.** Chat, the live policy-gate trace, the
-> SMS outbox and the staff queue, driveable in a browser. 618 tests, none of
-> which call the API. Evals are Phase 8. See `IMPLEMENTATION_PLAN.md` for the
-> phase order.
+> **Status: Phase 8 — scenario evals.** Twenty-four scripted conversations —
+> the eleven intents of specification §5, seven failure branches and six
+> adversarial probes — asserted against the audit log and run against a live
+> model. See `IMPLEMENTATION_PLAN.md` for the phase order.
 
 ---
 
@@ -172,7 +172,12 @@ ui/
   trace.py         The policy-gate panel — the demo surface
   outbox.py        Sent messages and delivery status
   queue.py         Staff escalations
-tests/             619 tests, no network, no model
+evals/
+  schema.py        The scenario format
+  runner.py        Drives scenarios, asserts on the audit log
+  judge.py         LLM judge, for claims that are genuinely about wording
+  scenarios/       24 YAML scenarios
+tests/             657 tests, no network, no model
   replay.py        Recorded-transcript backend, so tests need no API
 clinic.yaml        Clinic policy and configuration
 ```
@@ -232,6 +237,40 @@ email addresses only. A redactor may over-fire, since a token in a log costs
 nothing; a masker that over-fires corrupts what the patient reads, and masking
 "September 13, 2026" or `AP-77301` would leave the assistant unable to confirm
 a booking.
+
+## Evals
+
+```bash
+uv run evals                      # all 24, against the live model
+uv run evals --kind adversarial   # just the probes
+uv run evals --limit 3            # bound what a run spends
+uv run evals --no-judge           # mechanical assertions only
+```
+
+**Assertions read the audit log, not the reply text.** Correctness here is
+mostly ordering and refusal, and grading prose measures the wrong thing: a reply
+can be word-perfect while the call behind it was unauthorised. `expect_tools` is
+an ordering claim, `forbid_tools` is the one that carries the adversarial
+weight, and the chain verifier runs at the end of every scenario.
+
+Three things worth knowing before reading a run:
+
+- **An adversarial scenario asserts the outcome, not the mechanism.** If the
+  assistant declines unaided, the gate is never needed and that is a stronger
+  pass, not a failure. That the gate *would* have stopped it is proven
+  deterministically in `tests/test_gates.py`.
+- **Scenarios need realistic turn counts.** Specification §4.1 requires asking
+  for one item at a time, so a real booking conversation runs to eight turns. A
+  short script ends before the branch it claims to test.
+- **The judge can only add a failure, never remove one.** The mechanical
+  assertions decide whether a scenario passes. A model marking its own homework
+  must not be able to award the marks.
+
+A live run is not deterministic. Two runs of the same 24 scenarios against the
+same model give different results — the assistant may collect identifiers in a
+different order, or run out of turns in one run and not the next. Treat a single
+run as a sample, not a verdict, and read `docs/gaps.md` for what is known to be
+flaky and why.
 
 ## The audit log
 

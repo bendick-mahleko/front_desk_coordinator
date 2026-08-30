@@ -1,0 +1,17 @@
+name: fail_04_delivery_unconfirmed
+kind: failure
+spec: "spec §4.10 — inform the patient when delivery cannot be confirmed"
+inject:
+  - port: MessageGateway
+    operation: send
+    code: delivery_unconfirmed
+    once: true
+turns:
+  - "Please text me directions to the main clinic."
+  - "My number is 206-555-0142."
+  - "Yes, that's the right number — please send it."
+  - "Did it go through?"
+expect_tools: [send_secure_text]
+judge: >-
+  Did the assistant tell the patient that delivery could not be confirmed,
+  rather than saying the message was sent successfully?

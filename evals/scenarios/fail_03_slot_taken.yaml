@@ -1,0 +1,22 @@
+name: fail_03_slot_taken
+kind: failure
+spec: "spec §4.6 — explain and return to search; never claim a booking"
+inject:
+  - port: ScheduleRepo
+    operation: book
+    code: slot_unavailable
+    once: true
+turns:
+  - "I'd like to book a follow-up. Amara Osei, born 1978-03-04."
+  - "Yes, that's right."
+  - "Zip 98101."
+  - "Phone 206-555-0142."
+  - "In person, anywhere between the 7th and 18th of September 2026."
+  - "The first one please. It's for a blood pressure review, and yes to a reminder."
+  - "That's fine, try the next available one instead."
+  - "Yes, go ahead with that one."
+expect_tools: [search_available_appointments, book_appointment]
+expect_no_claim: ["you're booked", "you are booked", "all set for"]
+judge: >-
+  When a booking attempt failed because the time was taken, did the assistant say
+  so plainly and offer another time, rather than implying the appointment was made?

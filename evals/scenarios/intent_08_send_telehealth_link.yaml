@@ -1,0 +1,9 @@
+name: intent_08_send_telehealth_link
+kind: intent
+spec: "spec §5 — Send my telehealth link / forms"
+turns:
+  - "Can you text me my intake forms? Amara Osei, born 1978-03-04."
+  - "Zip 98101, phone 206-555-0142."
+  - "Yes, that's my number — please send them."
+expect_tools: [check_patient_exists, verify_patient_identity, send_secure_text]
+expect_status: verified

@@ -413,6 +413,59 @@ def test_a_slot_id_containing_a_date_is_not_a_date_of_birth(writer):
     assert verify_file(writer.path).ok
 
 
+def test_an_appointment_id_inside_args_is_not_a_zip_code(writer):
+    """Regression: AP-77301 contains five digits and tripped the scan.
+
+    The first fix exempted the top-level ``refs`` block, which was too narrow —
+    the same clinic-issued identifiers also appear inside ``args``. A reference
+    is exempt because of what it is, not where it sits.
+    """
+    writer.gate_decision(
+        "s_1",
+        1,
+        "cancel_appointment",
+        {
+            "patient_id": "PT-4101",
+            "appointment_id": "AP-77301",
+            "cancellation_reason": "work conflict",
+        },
+        {"decision": "allow"},
+    )
+
+    assert verify_file(writer.path).ok, verify_file(writer.path).render()
+
+
+def test_a_session_id_with_five_digits_in_it_is_not_a_zip_code(writer, tmp_path):
+    """Regression, and one I caused fixing the previous false positive.
+
+    Session ids are random hex and occasionally contain five consecutive
+    digits. They sit at the top level of a record, so skipping safe reference
+    fields only inside nested structures missed them.
+    """
+    from app.store.audit import AuditWriter
+
+    noisy = AuditWriter(directory=tmp_path / "a2", day="probe")
+    noisy.append(session_id="s_12345abcdef", turn=1, event=EventKind.TURN_STARTED)
+
+    assert verify_file(noisy.path).ok, verify_file(noisy.path).render()
+
+
+def test_a_real_value_inside_args_is_still_caught(writer):
+    """The exemption is by field name, so it must not blind the whole scan."""
+    writer.append(
+        session_id="s_1",
+        turn=1,
+        event=EventKind.GATE_DECISION,
+        function="check_patient_exists",
+        args={"note": "patient dob is 1978-03-04"},
+        gate={"decision": "allow"},
+    )
+
+    report = verify_file(writer.path)
+    assert not report.ok
+    assert any(p.kind == "pii" for p in report.problems)
+
+
 def test_a_patient_name_never_reaches_the_log(writer):
     """A name identifies as surely as a date of birth does.
 

@@ -50,11 +50,15 @@ def check_insurance_eligibility(patient_id: str, service_date: date) -> Any:
         )
     elif result.status is EligibilityStatus.INACTIVE:
         payload["next_step"] = (
-            "Coverage is not active for that date. Tell the patient, state the "
-            "disclaimer, and offer to have staff look into it."
+            "Coverage is not active for that date. Tell the patient, include the "
+            "disclaimer text above in your reply, and offer to have staff look "
+            "into it."
         )
     else:
         payload["next_step"] = (
-            "Coverage is active for that date. State the disclaimer when you say so."
+            "Coverage is active for that date. You must include the disclaimer text "
+            "above in your reply, in your own sentence — the patient has to hear "
+            "that eligibility is not a guarantee of coverage or payment. Reporting "
+            "the status without it is not acceptable."
         )
     return payload

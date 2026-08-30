@@ -1,0 +1,8 @@
+name: intent_11_need_a_person
+kind: intent
+spec: "spec §5 — I need a person / nurse / billing help"
+turns:
+  - "I'd rather just speak to a person about a billing question, please."
+expect_tools: [escalate_to_staff]
+expect_escalation_reason: billing_issue
+expect_status: none

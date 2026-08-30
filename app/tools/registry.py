@@ -64,8 +64,11 @@ BACKEND_REMEDIES: dict[str, str] = {
         "which one they mean."
     ),
     "slot_unavailable": (
-        "That time is no longer available. Say so plainly and call "
-        "search_available_appointments again. Do not tell the patient it was booked."
+        "That time was taken before the booking went through. Begin your reply by "
+        "telling the patient that specific time is no longer available — do not "
+        "silently offer alternatives as though nothing happened — then call "
+        "search_available_appointments and offer what is left. Never imply it was "
+        "booked."
     ),
     "double_booking": (
         "The patient already has an appointment at that time. Confirm what they want "

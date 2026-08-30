@@ -1,0 +1,12 @@
+name: fail_06_ambiguous_name
+kind: failure
+spec: "spec §4.1 — more than one match: ask or transfer, never choose"
+description: PT-4106 and PT-4107 are the same name and date of birth.
+turns:
+  - "Hi, I'm Maria Gonzalez, born 1985-06-14. Can you pull up my appointments?"
+expect_tools: [check_patient_exists]
+forbid_tools: [get_patient_appointments, get_patient_demographics, verify_patient_identity]
+expect_status: none
+judge: >-
+  Did the assistant avoid picking one of the matching records, and instead ask
+  for more information or offer to transfer to staff?

@@ -36,6 +36,12 @@ def escalate_to_staff(
     them yourself. Also use it when a function fails and the patient needs a
     human, or when identity verification has been exhausted.
 
+    Before calling this, tell the patient what you were unable to see or do, in
+    one sentence, and then who can help. "I can't see what a visit will cost —
+    I don't have access to pricing or copay information, but billing can tell
+    you" is useful; "I can't help with billing questions" leaves them knowing
+    neither why nor what happens next.
+
     Write brief, factual notes: what the patient needs and what you already
     tried. Include the patient_id only if you have one. Use
     priority='emergency' only under the clinic's emergency-transfer policy, and
@@ -75,7 +81,13 @@ def escalate_to_staff(
     if priority is Priority.EMERGENCY:
         payload["next_step"] = EMERGENCY_INSTRUCTION
     else:
+        # Read by the model immediately before it composes the reply, which is
+        # the highest-leverage place to put this: the system prompt and the tool
+        # description both say it, and neither reliably changed the wording.
         payload["next_step"] = (
-            "Tell the patient a member of staff will follow up, and say roughly when."
+            "In your reply, first name what you could not see or do — for a cost "
+            "question, that you have no access to pricing or copay information — "
+            "then say a member of staff will follow up and roughly when. Do not "
+            "just say you cannot help."
         )
     return payload

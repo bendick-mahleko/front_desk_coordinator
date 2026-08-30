@@ -34,7 +34,7 @@ from app.config import ClinicConfig, Settings, get_clinic_config, get_settings
 from app.policy.decorator import session_scope
 from app.policy.gates import PolicyGate, Verdict
 from app.policy.messages import DenialCode
-from app.policy.redaction import redact_args
+from app.policy.redaction import extract_phones, redact_args
 from app.safety.prescreen import Label, Prescreen, Screening
 from app.store.audit import AuditWriter
 from app.store.session import Session
@@ -474,6 +474,12 @@ class Orchestrator:
             session_scope(session, gate=self._gate, audit=recorder),
             registry.backend_scope(self._sim),
         ):
+            # spec §4.10 — a number the patient states is a number the patient
+            # has confirmed. Captured before the loop so the gate can act on it
+            # in the same turn the patient says it.
+            for number in extract_phones(user_text):
+                session.note_asserted_phone(number)
+
             # spec §7 — detection comes before routine scheduling workflows, so
             # this runs before the transcript is even assembled.
             screening = self._prescreen.classify(user_text)

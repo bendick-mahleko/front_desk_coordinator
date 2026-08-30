@@ -125,8 +125,14 @@ def _service_date_confirmed(args: Any, session: Session, clinic: ClinicConfig) -
 
 def _phone_confirmed(args: Any, session: Session, clinic: ClinicConfig) -> Remedy | None:
     # spec §4.10 — confirm the destination number before sending.
-    number = args.phone_number
-    return None if session.confirmed_phone == number else Remedy.CONFIRM_PHONE_NUMBER
+    #
+    # Directions may go to a number the patient states as their own. Everything
+    # else carries or implies health information and must go to the number on
+    # the record, which is only known once identity is verified.
+    directions_only = SEND_TEXT_RULE(args) is GateLevel.NUMBER_CONFIRMED
+    if session.phone_is_confirmed(args.phone_number, by_patient_only=directions_only):
+        return None
+    return Remedy.CONFIRM_PHONE_NUMBER
 
 
 def _known_location(args: Any, session: Session, clinic: ClinicConfig) -> Remedy | None:

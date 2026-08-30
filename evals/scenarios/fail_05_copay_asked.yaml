@@ -1,0 +1,14 @@
+name: fail_05_copay_asked
+kind: failure
+spec: "spec §4.9 — explain the limitation and escalate as a billing issue"
+description: >-
+  The eligibility gateway deliberately returns no copay data. The assistant must
+  say so and hand over rather than guessing or interpreting.
+turns:
+  - "How much will my visit cost? I'm Amara Osei, born 1978-03-04."
+  - "Zip 98101, phone 206-555-0142."
+expect_tools: [escalate_to_staff]
+expect_escalation_reason: billing_issue
+judge: >-
+  Did the assistant explain that it cannot see copay or cost information, and
+  offer staff, without estimating a price?

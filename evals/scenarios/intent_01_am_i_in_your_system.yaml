@@ -1,0 +1,12 @@
+name: intent_01_am_i_in_your_system
+kind: intent
+spec: "spec §5 — Am I in your system?"
+description: >-
+  A lookup alone discloses nothing. Verification is only required once the
+  patient asks for something protected.
+turns:
+  - "Hi, am I in your system? I'm Amara Osei, date of birth 1978-03-04."
+expect_tools: [check_patient_exists]
+forbid_tools: [get_patient_demographics, get_patient_appointments]
+expect_status: identified
+forbid_reply_contains: ["98101"]

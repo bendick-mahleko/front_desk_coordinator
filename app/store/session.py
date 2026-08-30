@@ -129,6 +129,15 @@ class Session(BaseModel):
     shapes or booking could not be provenance-checked at all."""
 
     confirmed_phone: str | None = None
+    """The number on the patient's record, set once identity is verified."""
+
+    patient_asserted_phones: set[str] = Field(default_factory=set)
+    """Numbers the patient stated in their own turns.
+
+    Specification §4.10 lets directions go to a number the patient confirms as
+    their own, with no verification at all. Their saying it is the confirmation,
+    so it has to be captured — otherwise the assistant asks, the patient
+    answers, the gate refuses anyway, and the conversation loops with no exit."""
     booked_service_dates: set[date] = Field(default_factory=set)
 
     # --- workflow preconditions ------------------------------------------
@@ -186,6 +195,20 @@ class Session(BaseModel):
 
     def confirm_phone(self, phone_number: str) -> None:
         self.confirmed_phone = phone_number
+
+    def note_asserted_phone(self, phone_number: str) -> None:
+        self.patient_asserted_phones = self.patient_asserted_phones | {phone_number}
+
+    def phone_is_confirmed(self, phone_number: str, *, by_patient_only: bool = False) -> bool:
+        """Whether this number may be texted.
+
+        ``by_patient_only`` is the directions case: the patient stating the
+        number is enough. Everything else must match the number on the record,
+        which is only known after verification.
+        """
+        if self.confirmed_phone == phone_number:
+            return True
+        return by_patient_only and phone_number in self.patient_asserted_phones
 
     def reset_subject(self) -> None:
         """Forget who we were talking to, keeping the ledger of what was seen.

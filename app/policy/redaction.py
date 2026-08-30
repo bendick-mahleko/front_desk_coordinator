@@ -214,3 +214,28 @@ def mask(kind: str, value: Any) -> str:
     if masker is None:
         return "•" * len(str(value))
     return masker(value)
+
+
+_PHONE_IN_TEXT = _OUTPUT_MASKS[0][0]
+
+
+def extract_phones(text: str) -> set[str]:
+    """Phone numbers the patient stated in their own words.
+
+    Specification §4.10 lets directions go to a number the patient confirms as
+    their own. Their saying it *is* the confirmation, so it has to be captured
+    from the turn — otherwise the assistant asks, the patient answers, the gate
+    still refuses, and the conversation loops.
+    """
+    # Imported here rather than at module scope: schemas is the single source
+    # for what a valid number looks like, and a top-level import would couple
+    # the redactor to the tool layer for one function.
+    from app.tools.schemas import normalise_phone
+
+    found = set()
+    for match in _PHONE_IN_TEXT.finditer(text):
+        try:
+            found.add(normalise_phone(match.group(0)))
+        except ValueError:
+            continue
+    return found

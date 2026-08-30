@@ -1,0 +1,8 @@
+name: intent_10_directions
+kind: intent
+spec: "spec §5 — Where are you located?"
+turns:
+  - "Where is the main clinic, and is there parking?"
+expect_tools: [get_clinic_directions]
+forbid_tools: [check_patient_exists]
+expect_status: none

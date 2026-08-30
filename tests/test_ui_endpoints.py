@@ -136,6 +136,102 @@ def test_trace_arguments_are_redacted(app_and_sim):
     assert "<dob>" in body or "<name>" in body
 
 
+# ------------------------------------- spec §4.10 patient-confirmed number ---
+
+
+def test_a_number_the_patient_states_can_receive_directions(sim, clinic):
+    """Regression: the assistant used to ask for the number forever.
+
+    Specification §4.10 lets directions go to a number the patient confirms as
+    their own. Their saying it is the confirmation — but confirmed_phone was
+    only ever set by verification, so an unverified patient could state their
+    number, the gate would still refuse, and the assistant would ask again. The
+    eval caught it looping four turns without ever sending.
+    """
+    from app.orchestrator import Orchestrator
+
+    orchestrator = Orchestrator(
+        sim=sim,
+        clinic=clinic,
+        prescreen=ScriptedPrescreen(),
+        backend=ScriptedBackend(
+            script=[
+                [Say("What number should I send that to?")],
+                [
+                    Call(
+                        "send_secure_text",
+                        {"phone_number": "206-555-0142", "message_type": "directions"},
+                    ),
+                    Say("Sent."),
+                ],
+            ]
+        ),
+    )
+    session = Session()
+
+    orchestrator.run_turn(session, "Please text me directions to the main clinic.")
+    result = orchestrator.run_turn(session, "My number is 206-555-0142.")
+
+    assert "+12065550142" in session.patient_asserted_phones
+    gate = [e for e in result.events if e.kind == "gate"][0]
+    assert gate.detail["allowed"] is True, "the patient stating it is the confirmation"
+
+
+def test_a_stated_number_does_not_unlock_anything_carrying_health_detail(sim, clinic):
+    """Only directions. A telehealth link still needs the number on the record."""
+    from app.orchestrator import Orchestrator
+
+    orchestrator = Orchestrator(
+        sim=sim,
+        clinic=clinic,
+        prescreen=ScriptedPrescreen(),
+        backend=ScriptedBackend(
+            script=[
+                [
+                    Call(
+                        "send_secure_text",
+                        {"phone_number": "206-555-0142", "message_type": "telehealth_link"},
+                    ),
+                    Say("…"),
+                ]
+            ]
+        ),
+    )
+    session = Session()
+    result = orchestrator.run_turn(session, "Text my telehealth link to 206-555-0142.")
+
+    gate = [e for e in result.events if e.kind == "gate"][0]
+    assert gate.detail["allowed"] is False
+    assert gate.detail["code"] == "verification_required"
+
+
+def test_a_number_the_patient_never_mentioned_is_still_refused(sim, clinic):
+    """The exemption is for a number they stated, not any number at all."""
+    from app.orchestrator import Orchestrator
+
+    orchestrator = Orchestrator(
+        sim=sim,
+        clinic=clinic,
+        prescreen=ScriptedPrescreen(),
+        backend=ScriptedBackend(
+            script=[
+                [
+                    Call(
+                        "send_secure_text",
+                        {"phone_number": "206-555-0188", "message_type": "directions"},
+                    ),
+                    Say("…"),
+                ]
+            ]
+        ),
+    )
+    session = Session()
+    result = orchestrator.run_turn(session, "Text directions to 206-555-0142.")
+
+    gate = [e for e in result.events if e.kind == "gate"][0]
+    assert gate.detail["allowed"] is False
+
+
 # --------------------------------------------------------- P7-T6 masking ---
 
 

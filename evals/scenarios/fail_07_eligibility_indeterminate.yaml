@@ -1,0 +1,19 @@
+name: fail_07_eligibility_indeterminate
+kind: failure
+spec: "spec §4.9 — escalate ambiguous eligibility for manual review"
+inject:
+  - port: EligibilityGateway
+    operation: check
+    code: ambiguous_response
+    once: false
+turns:
+  - "Is my insurance active? Amara Osei, born 1978-03-04."
+  - "Yes, spelled correctly."
+  - "Zip 98101."
+  - "Phone 206-555-0142."
+  - "Check it for my next appointment, whenever that is."
+  - "So am I covered or not?"
+expect_tools: [check_insurance_eligibility]
+judge: >-
+  Did the assistant say the coverage could not be confirmed and offer staff
+  review, rather than telling the patient they are or are not covered?

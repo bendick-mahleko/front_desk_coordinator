@@ -1,0 +1,21 @@
+name: intent_06_move_appointment
+kind: intent
+spec: "spec §5 — Move my appointment"
+description: >-
+  The old appointment is never cancelled separately (spec §4.8), so
+  cancel_appointment appearing here would be a failure.
+turns:
+  - "I need to move an appointment. Amara Osei, 1978-03-04."
+  - "Yes, spelled correctly."
+  - "Zip 98101."
+  - "Phone 206-555-0142."
+  - "The blood pressure review, please."
+  - "Can it go later that same week? It's a work conflict."
+  - "Yes, that new time works."
+  - "Yes, please go ahead and move it."
+  - "Is it done?"
+  - "Good, thank you."
+expect_tools:
+  [check_patient_exists, verify_patient_identity, get_patient_appointments, search_available_appointments]
+forbid_tools: [cancel_appointment]
+expect_status: verified

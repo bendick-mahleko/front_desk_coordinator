@@ -160,7 +160,9 @@ def test_the_classifier_uses_the_configured_model():
     Prescreen(client=client).classify("book me in")
 
     assert "haiku" in client.messages.kwargs["model"]
-    assert client.messages.kwargs["max_tokens"] <= 16, "one word needs no more"
+    # Enough for a one-word answer plus a stray preamble; eight truncated
+    # "The label is clinical_advice" mid-word and it matched nothing.
+    assert client.messages.kwargs["max_tokens"] <= 32, "a label needs no more"
 
 
 def test_a_classifier_outage_does_not_block_the_turn():

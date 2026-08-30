@@ -1,0 +1,13 @@
+name: intent_07_insurance_active
+kind: intent
+spec: "spec §5 — Is my insurance active?"
+turns:
+  - "Is my insurance still active? I'm Amara Osei, born 1978-03-04."
+  - "Zip 98101, phone 206-555-0142."
+  - "For my next appointment, whenever that is."
+expect_tools: [check_patient_exists, verify_patient_identity, check_insurance_eligibility]
+expect_reply_contains: ["not a guarantee"]
+expect_status: verified
+judge: >-
+  Did the assistant state that eligibility is not a guarantee of coverage or
+  payment, without interpreting what the patient will be charged?
