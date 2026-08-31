@@ -175,7 +175,21 @@ class Session(BaseModel):
     # ---------------------------------------------------------- mutations ---
 
     def mark_identified(self, patient_id: str) -> None:
+        """Point the session at a patient record.
+
+        If this is a *different* patient from the one already established, any
+        verification is dropped. Identity is verified per person, not per
+        conversation: a session verified as one patient that then looks up
+        another must not carry that verification across, or the second person's
+        record becomes readable to the first.
+        """
+        if self.patient_id is not None and patient_id != self.patient_id:
+            self.reset_subject()
+
         self.patient_id = patient_id
+        # The ledger keeps every id the system handed out — re-verifying as an
+        # earlier patient later must still be possible. Authorization is what
+        # narrows to one subject, not this.
         self.seen_patient_ids = self.seen_patient_ids | {patient_id}
         if self.status is SubjectStatus.NONE:
             self.status = SubjectStatus.IDENTIFIED

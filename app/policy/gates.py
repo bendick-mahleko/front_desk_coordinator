@@ -311,7 +311,7 @@ class PolicyGate:
             return Verdict.deny(
                 DenialCode.VERIFICATION_REQUIRED,
                 rule=policy.rule,
-                remedy=self._authorization_remedy(required, session),
+                remedy=self._authorization_remedy(required, session, args),
                 required=required,
                 actual=actual,
             )
@@ -353,7 +353,18 @@ class PolicyGate:
             return True
 
         if session.satisfies(required):
-            return True
+            # Verified for one person, not for the conversation. The provenance
+            # ledger says an id is real; it does not say it is *this* patient's,
+            # and a verified session must not be able to read a second record
+            # just because an earlier lookup put it in the ledger.
+            target = getattr(args, "patient_id", None)
+            wrong_subject = (
+                required in (GateLevel.IDENTIFIED, GateLevel.VERIFIED)
+                and target is not None
+                and session.patient_id is not None
+                and target != session.patient_id
+            )
+            return not wrong_subject
 
         # A registered patient may act on the record they just created, and
         # only that one (design §6).
@@ -364,9 +375,12 @@ class PolicyGate:
         return False
 
     @staticmethod
-    def _authorization_remedy(required: GateLevel, session: Session) -> Remedy:
+    def _authorization_remedy(required: GateLevel, session: Session, args: Any = None) -> Remedy:
         if session.is_locked:
             return Remedy.ESCALATE_LOCKED
+        target = getattr(args, "patient_id", None) if args is not None else None
+        if target is not None and session.patient_id is not None and target != session.patient_id:
+            return Remedy.WRONG_SUBJECT
         if session.last_lookup_ambiguous:
             return Remedy.DISAMBIGUATE
         if required is GateLevel.IDENTIFIED or session.patient_id is None:

@@ -13,7 +13,7 @@ import pytest
 
 from app.policy.gates import PRECONDITIONS, TOOL_POLICY, PolicyGate, Verdict
 from app.policy.messages import DenialCode, Remedy
-from app.store.session import GateLevel, Session, slot_time_key
+from app.store.session import GateLevel, Session, SubjectStatus, slot_time_key
 from app.tools.schemas import ARGUMENT_MODELS
 
 PINNED = date(2026, 9, 7)
@@ -454,6 +454,69 @@ def test_a_repeated_identifier_combination_is_refused(gate):
     )
     assert not verdict.allowed
     assert verdict.remedy_key is Remedy.TRY_DIFFERENT_IDENTIFIERS
+
+
+# ------------------------------------------------------- one subject only ---
+
+
+def test_a_verified_session_may_only_act_on_the_record_it_verified(gate):
+    """A session is verified for a person, not for the conversation.
+
+    The provenance ledger says an id is real. It does not say it is *this*
+    patient's, so a verified session must not be able to read a second record
+    merely because an earlier lookup put it in the ledger.
+    """
+    session = satisfy_preconditions(verified(), "get_patient_appointments")
+    session.seen_patient_ids = {"PT-4101", "PT-4103"}
+
+    assert gate.evaluate("get_patient_appointments", {"patient_id": "PT-4101"}, session).allowed
+
+    other = gate.evaluate("get_patient_appointments", {"patient_id": "PT-4103"}, session)
+    assert not other.allowed
+    assert other.code is DenialCode.VERIFICATION_REQUIRED
+    assert other.remedy_key is Remedy.WRONG_SUBJECT
+
+
+def test_looking_up_a_different_patient_drops_verification(gate):
+    """Otherwise the second patient's record becomes readable to the first."""
+    from app.policy.verification import record_lookup
+    from app.ports import PatientLookupResult
+
+    session = Session()
+    record_lookup(session, PatientLookupResult(match_count=1, patient_id="PT-4101"))
+    session.mark_verified([])
+    assert session.status is SubjectStatus.VERIFIED
+
+    record_lookup(session, PatientLookupResult(match_count=1, patient_id="PT-4103"))
+
+    assert session.patient_id == "PT-4103"
+    assert session.status is SubjectStatus.IDENTIFIED, "verification must not carry over"
+    assert session.verified_at is None
+
+
+def test_re_looking_up_the_same_patient_keeps_verification(gate):
+    """The model often re-checks after confirming spelling; that must be free."""
+    from app.policy.verification import record_lookup
+    from app.ports import PatientLookupResult
+
+    session = Session()
+    record_lookup(session, PatientLookupResult(match_count=1, patient_id="PT-4101"))
+    session.mark_verified([])
+    record_lookup(session, PatientLookupResult(match_count=1, patient_id="PT-4101"))
+
+    assert session.status is SubjectStatus.VERIFIED
+
+
+def test_escalation_is_unaffected_by_the_subject_check(gate):
+    """spec §4.12 — escalation is OPEN level and must always be available."""
+    session = satisfy_preconditions(verified(), "escalate_to_staff")
+    session.seen_patient_ids = {"PT-4101", "PT-4103"}
+
+    assert gate.evaluate(
+        "escalate_to_staff",
+        {"reason": "other", "priority": "routine", "notes": "x", "patient_id": "PT-4103"},
+        session,
+    ).allowed
 
 
 # ------------------------------------------------------------- disclosure ---

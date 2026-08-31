@@ -59,6 +59,7 @@ class Remedy(StrEnum):
     UNKNOWN_LOCATION = "unknown_location"
     FIX_ARGUMENTS = "fix_arguments"
     DISAMBIGUATE = "disambiguate"
+    WRONG_SUBJECT = "wrong_subject"
 
 
 REMEDIES: dict[Remedy, str] = {
@@ -107,6 +108,11 @@ REMEDIES: dict[Remedy, str] = {
         "escalate to staff."
     ),
     Remedy.FIX_ARGUMENTS: "Correct the arguments and call the function again.",
+    Remedy.WRONG_SUBJECT: (
+        "That is not the patient whose identity was verified in this conversation. "
+        "Use the verified patient's id, or verify the other patient separately "
+        "before acting on their record."
+    ),
     Remedy.DISAMBIGUATE: (
         "More than one record matched. Ask only for permitted disambiguating "
         "information, or transfer to staff. Do not choose between the records."

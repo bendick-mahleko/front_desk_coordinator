@@ -425,6 +425,17 @@ class Orchestrator:
             f"Turn {session.turn_index}. "
             f"Channel: {self._channel.name}."
         )
+        # The model was previously left to remember the patient_id from an
+        # earlier turn. In a long conversation it sometimes misremembered it,
+        # and the gate then refused the call as an unknown reference — correctly,
+        # but the assistant had no way to recover because it could not see the
+        # right value anywhere.
+        if session.patient_id:
+            block = (
+                f"{block} The patient in this conversation is "
+                f"{session.patient_id}. Use exactly this id for any function "
+                f"that takes a patient_id; do not use any other."
+            )
         # The pre-screen's finding is reinforcement, not enforcement — the
         # refusal set is in the system prompt and the gate is in code. This just
         # means the model is not seeing the message cold.
