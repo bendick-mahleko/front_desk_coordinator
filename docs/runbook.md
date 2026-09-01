@@ -88,6 +88,28 @@ issue; a fixture that supplied a copay would make that untestable.
 
 ---
 
+## Rebuilding the knowledge index
+
+```
+uv run build-kb
+```
+
+Needed whenever the *shape* of a chunk changes, not just its text — the chunk
+metadata is what a citation is assembled from, so an index built before a
+metadata field existed cannot cite itself. Rather than guess, retrieval refuses:
+
+```
+IndexOutOfDate: the vector index has no citation metadata for
+'otitis-media-middle-ear-infection::management'; rebuild it with `uv run build-kb`
+```
+
+A citation reading "row 0" would be a wrong reference in a clinician-facing
+artifact, which is worse than no answer at all.
+
+Chunk ids are stable, so a rebuild upserts rather than duplicating. The build
+prints the per-tier counts and the source file's sha256; if either changes
+unexpectedly, the corpus changed under you.
+
 ## Breaking it on purpose
 
 Every backend failure the assistant must handle can be asked for. Randomness

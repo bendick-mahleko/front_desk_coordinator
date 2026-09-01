@@ -83,6 +83,21 @@ class Priority(StrEnum):
     EMERGENCY = "emergency"
 
 
+class Tier(StrEnum):
+    """The audience a chunk of the knowledge base is written for (spec §1.2).
+
+    Lives here rather than in ``app.knowledge`` because r3 makes it a tool
+    argument (§4.14 takes a ``tier``), and this module is the one place enums
+    shared between the schema layer and everything else can live without a
+    cycle. ``app.knowledge.chunking`` re-exports it, so the many
+    ``from app.knowledge.chunking import Tier`` call sites are unaffected.
+    """
+
+    PATIENT_SAFE = "patient_safe"
+    ROUTING_ONLY = "routing_only"
+    CLINICIAN_ONLY = "clinician_only"
+
+
 class ClinicalRole(StrEnum):
     """The licensed directory roles §4.13 accepts.
 
@@ -382,6 +397,21 @@ class AuthenticateClinicalUserArgs(StrictArgs):
     department: str | None = Field(default=None, max_length=64)
 
 
+class SearchClinicalKnowledgeArgs(StrictArgs):
+    """spec §4.14.
+
+    ``tier`` is a *request*, resolved against the session role's permitted set
+    before the query is built (§4.14, §1.3). It cannot widen access: a tier the
+    role does not hold is rejected, not narrowed, so a probe is visible in the
+    audit log rather than looking like an empty result.
+    """
+
+    query: str = Field(min_length=2, max_length=2000)
+    tier: Tier
+    k: int = Field(ge=1, le=20)
+    min_score: float | None = Field(default=None, ge=0.0, le=1.0)
+
+
 # ------------------------------------------------------------------ registry ---
 
 ARGUMENT_MODELS: dict[str, type[StrictArgs]] = {
@@ -402,6 +432,7 @@ ARGUMENT_MODELS: dict[str, type[StrictArgs]] = {
     "escalate_to_staff": EscalateToStaffArgs,
     "suggest_appointment_type": SuggestAppointmentTypeArgs,
     "authenticate_clinical_user": AuthenticateClinicalUserArgs,
+    "search_clinical_knowledge": SearchClinicalKnowledgeArgs,
 }
 """The functions the assistant may call.
 

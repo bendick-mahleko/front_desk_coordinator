@@ -376,7 +376,7 @@ Deferred deliberately: the clinical framing is Appendix A.0's, it depends on the
 §4.14–§4.16 functions that do not exist yet, and a prompt instructing a model to
 cite retrieved context when there is nothing to retrieve is worse than none.
 
-### C3 — `search_clinical_knowledge` (½ day, ~25 tests)
+### C3 — `search_clinical_knowledge` — **DONE** (41 tests)
 
 Thin wrapper over the existing `KnowledgeBase.search`. §4.14's substance is in
 the tier arithmetic and the return shape.
@@ -391,9 +391,48 @@ the tier arithmetic and the return shape.
 - Empty result below `min_score` is a **valid negative** (§6), not an error.
 - No summarising inside this function (§4.14).
 
-Exit: a patient-role session cannot reach `CLINICIAN_ONLY` through any argument
-combination; the returned payload carries text, source document, row id, record
-name, tier and score for every chunk.
+Exit (all met): a patient-role session cannot reach `CLINICIAN_ONLY` through any
+argument combination — asserted across every tier, both ends of `k`, with and
+without the floor; the payload carries text, source document, row id, record
+name, tier, score and a rendered citation for every chunk. Two mutants —
+`require_tiers` narrowing instead of rejecting, `get` ignoring its tier — fail
+four and two tests respectively.
+
+**The tier decision became a single chokepoint, and finding the call sites found
+a bug.** `require_tiers(requested, role, *, staff_ticket=False)` is now the only
+place that decides what a session may read, and a test scans `app/` asserting no
+call site does its own tier arithmetic. That scan immediately found a **fourth**
+retrieval — the red-flag screen in `app/safety/prescreen.py` — which had been
+resolving its tier from a literal. Three known call sites, four actual.
+
+**`store.get()` had no tier filter at all.** Fetch-by-id was a door into the
+index with nothing on it; only the §4.12 escalation path used it, and
+legitimately, but "nothing calls it wrongly today" is an observation with a shelf
+life rather than a guarantee. `get` now takes tiers like `search`, and applies
+them as a `where` clause rather than filtering after the read.
+
+**The §4.12 exemption is now visible in code.** The escalation briefing names
+`staff_ticket=True` explicitly, keyword-only, and that keyword is the only route
+to `CLINICIAN_ONLY` from a patient role anywhere in the codebase. It used to be
+implicit in a hardcoded tier list.
+
+**`Tier` moved to `app/tools/schemas.py`.** §4.14 makes it a tool argument, and
+`app.knowledge.chunking` cannot be imported from the schema layer without a
+cycle. `chunking` re-exports it, so every existing `from app.knowledge.chunking
+import Tier` still works.
+
+**A stale index refuses to cite itself.** Chunk metadata grew a
+`source_document`, so an index built earlier has no way to produce a citation.
+`IndexOutOfDate` names `uv run build-kb` as the remedy rather than defaulting to
+row 0 — a *miscited* clinical claim is no better than an uncited one. This fired
+for real on the on-disk index during C3 and the rebuild fixed it; the runbook now
+has the procedure.
+
+The query text is audited **unredacted**, which is the one place in this system
+where recording the text is the requirement rather than the failure: §4.14 asks
+for it by name, and a reviewer checking whether a retrieval was appropriate
+cannot do that against `<query>`. It is masked in the gate's argument view, so it
+lands in the retrieval record deliberately and nowhere else by accident.
 
 ### C4 — `get_dosage_information` (1 day, ~45 tests)
 

@@ -32,14 +32,28 @@ def _clinician_briefing(reason: EscalationReason, notes: str) -> str:
     if reason is not EscalationReason.COMPLEX_SYMPTOMS:
         return ""
     try:
-        from app.knowledge.chunking import Tier, slug
+        from app.knowledge.chunking import Tier, require_tiers, slug
         from app.knowledge.red_flags import BRIEFING_MIN_SCORE
+        from app.policy.decorator import current_session
 
+        role = current_session().effective_role
         store = knowledge_base()
-        matches = store.search(notes, tiers=[Tier.ROUTING_ONLY], k=2, min_score=BRIEFING_MIN_SCORE)
+
+        # Two retrievals, two tiers, both resolved through the chokepoint.
+        #
+        # The symptom search is ordinary patient-role retrieval. The management
+        # fetch is the §4.12 exemption — a complex_symptoms ticket must carry
+        # clinician-only reference context, and this is raised from a patient
+        # session — so it names `staff_ticket=True` explicitly. That keyword is
+        # the only way to reach CLINICIAN_ONLY from a patient role anywhere in
+        # the codebase, which is what makes the exemption reviewable.
+        symptom_tiers = require_tiers([Tier.ROUTING_ONLY], role)
+        ticket_tiers = require_tiers([Tier.CLINICIAN_ONLY], role, staff_ticket=True)
+
+        matches = store.search(notes, tiers=symptom_tiers, k=2, min_score=BRIEFING_MIN_SCORE)
         lines = []
         for match in matches:
-            chunk = store.get(f"{slug(match.disease)}::management")
+            chunk = store.get(f"{slug(match.disease)}::management", tiers=ticket_tiers)
             if chunk is not None:
                 lines.append(f"- ({match.score:.2f}) {chunk.text}")
     except Exception:  # noqa: BLE001

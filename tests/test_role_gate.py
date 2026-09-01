@@ -63,9 +63,9 @@ def test_every_policy_declares_its_principals():
 
 
 def test_the_clinical_group_is_exactly_what_section_2_lists():
-    """§2 names four. One exists so far; C3–C5 add the rest, and this fails when
+    """§2 names four. Two exist so far; C4–C5 add the rest, and this fails when
     one lands without its policy entry being decided."""
-    assert {"authenticate_clinical_user"} == CLINICAL_FUNCTIONS
+    assert {"authenticate_clinical_user", "search_clinical_knowledge"} == CLINICAL_FUNCTIONS
 
 
 def test_no_patient_function_became_clinical_only():
@@ -90,6 +90,10 @@ def test_only_section_4_14_to_4_16_require_authentication():
     assert TOOL_POLICY["authenticate_clinical_user"].requires_clinical_auth is False
     for name in PATIENT_FUNCTIONS:
         assert TOOL_POLICY[name].requires_clinical_auth is False, name
+
+    # Everything else in the clinical group does require it (§4.13).
+    for name in CLINICAL_FUNCTIONS - {"authenticate_clinical_user"}:
+        assert TOOL_POLICY[name].requires_clinical_auth is True, name
 
 
 # --------------------------------------------------------- the tool schema ---

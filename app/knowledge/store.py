@@ -5,9 +5,16 @@ exercise retrieval without a database directory or a network call.
 
 Two properties matter more than the storage engine:
 
-**Tier filtering happens in the query.** ``search`` requires the caller to name
-the tiers it is allowed to read, and that becomes a ``where`` clause. Restricted
-vectors are never candidates. There is no post-filtering step to forget.
+**Tier filtering happens in the query.** ``search`` *and* ``get`` require the
+caller to name the tiers it is allowed to read, and that becomes a ``where``
+clause. Restricted vectors are never candidates. There is no post-filtering step
+to forget.
+
+``get`` took no tier until r3, which left a fetch-by-id door into the index with
+no filter on it. Only the §4.12 escalation path used it, and legitimately, but
+"nothing calls it wrongly today" is not a guarantee — it is an observation with a
+shelf life. Callers now name their tiers here as well, and
+``chunking.require_tiers`` is the one place that decides what those may be.
 
 **A weak match returns nothing.** Sixty-six records means every query has a
 nearest neighbour, and the nearest neighbour to "my knee hurts" is *something*.
@@ -24,13 +31,30 @@ from typing import Any, Protocol, cast, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict
 
-from app.knowledge.chunking import Chunk, Tier
+from app.knowledge.chunking import Chunk, Tier, TierViolation
 from app.knowledge.embedding import Embedder, cosine
 
 logger = logging.getLogger("frontdesk.knowledge")
 
 DEFAULT_MIN_SCORE = 0.25
 """Below this, a hit is not reported. Tuned in evals/retrieval, not guessed."""
+
+
+def _citation(metadata: Any, chunk_id: str) -> dict[str, Any]:
+    """Read the citation fields out of stored metadata, or refuse.
+
+    An index built before ``source_document`` existed has no way to cite itself,
+    and guessing would put a wrong reference in a clinical artifact.
+    """
+    if "source_document" not in metadata or "source_row" not in metadata:
+        raise IndexOutOfDate(
+            f"the vector index has no citation metadata for {chunk_id!r}; "
+            f"rebuild it with `uv run build-kb`"
+        )
+    return {
+        "source_row": int(metadata["source_row"]),
+        "source_document": str(metadata["source_document"]),
+    }
 
 
 class Hit(BaseModel):
@@ -43,13 +67,26 @@ class Hit(BaseModel):
     text: str
     score: float
 
+    # spec §4.14 — every returned chunk names where it came from, so anything
+    # built on top of it can cite rather than assert.
+    source_row: int = 0
+    source_document: str = ""
 
-class TierViolation(RuntimeError):
-    """A search asked for a tier the caller is not permitted to read.
+    @property
+    def citation(self) -> str:
+        """One rendered reference. Assembled here so every caller cites the
+        same way and none of them has to remember the format."""
+        where = f"row {self.source_row}" if self.source_row else "row not recorded"
+        return f"{self.source_document or 'source not recorded'}, {where}, {self.disease}"
 
-    Raised rather than filtered, because a caller asking for the wrong tier is a
-    programming error and should fail loudly in a test, not degrade quietly in
-    production.
+
+class IndexOutOfDate(RuntimeError):
+    """The persisted index predates the metadata a citation needs.
+
+    Raised rather than defaulted. A citation reading "row 0" would be a wrong
+    reference in a clinician-facing artifact, which is worse than no answer —
+    §7.2 calls uncited clinical content a defect, and a *miscited* one is no
+    better.
     """
 
 
@@ -61,7 +98,7 @@ class KnowledgeBase(Protocol):
         self, query: str, tiers: Iterable[Tier], k: int = 3, min_score: float = DEFAULT_MIN_SCORE
     ) -> list[Hit]: ...
 
-    def get(self, chunk_id: str) -> Hit | None: ...
+    def get(self, chunk_id: str, tiers: Iterable[Tier]) -> Hit | None: ...
 
     def count(self) -> int: ...
 
@@ -102,6 +139,8 @@ class InMemoryKnowledgeBase:
                 tier=chunk.tier,
                 text=chunk.text,
                 score=cosine(vector, candidate),
+                source_row=chunk.source_row,
+                source_document=chunk.source_document,
             )
             for chunk, candidate in zip(self._chunks, self._vectors, strict=True)
             if chunk.tier.value in allowed
@@ -109,9 +148,10 @@ class InMemoryKnowledgeBase:
         scored.sort(key=lambda hit: hit.score, reverse=True)
         return [hit for hit in scored[:k] if hit.score >= min_score]
 
-    def get(self, chunk_id: str) -> Hit | None:
+    def get(self, chunk_id: str, tiers: Iterable[Tier]) -> Hit | None:
+        allowed = set(_validate_tiers(tiers))
         for chunk in self._chunks:
-            if chunk.chunk_id == chunk_id:
+            if chunk.chunk_id == chunk_id and chunk.tier.value in allowed:
                 return Hit(
                     chunk_id=chunk.chunk_id,
                     disease=chunk.disease,
@@ -119,6 +159,8 @@ class InMemoryKnowledgeBase:
                     tier=chunk.tier,
                     text=chunk.text,
                     score=1.0,
+                    source_row=chunk.source_row,
+                    source_document=chunk.source_document,
                 )
         return None
 
@@ -206,12 +248,24 @@ class ChromaKnowledgeBase:
                     tier=Tier(str(metadata["tier"])),
                     text=str(document),
                     score=score,
+                    **_citation(metadata, chunk_id),
                 )
             )
         return hits
 
-    def get(self, chunk_id: str) -> Hit | None:
-        result = self._collection.get(ids=[chunk_id], include=["documents", "metadatas"])
+    def get(self, chunk_id: str, tiers: Iterable[Tier]) -> Hit | None:
+        allowed = _validate_tiers(tiers)
+        # The tier is a `where` clause here too, for the same reason it is one in
+        # search: a fetch that filtered afterwards would have already read the
+        # restricted vector.
+        where: dict[str, Any] = (
+            {"tier": allowed[0]} if len(allowed) == 1 else {"tier": {"$in": allowed}}
+        )
+        result = self._collection.get(
+            ids=[chunk_id],
+            where=cast("Any", where),
+            include=["documents", "metadatas"],
+        )
         documents = result.get("documents") or []
         metadatas = result.get("metadatas") or []
         if not documents or not metadatas:
@@ -224,6 +278,7 @@ class ChromaKnowledgeBase:
             tier=Tier(str(metadata["tier"])),
             text=str(documents[0]),
             score=1.0,
+            **_citation(metadata, chunk_id),
         )
 
     def count(self) -> int:

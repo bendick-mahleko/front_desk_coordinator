@@ -41,6 +41,7 @@ class EventKind:
     VERIFICATION = "verification"
     ESCALATION = "escalation"
     CLINICAL_AUTH = "clinical_auth"
+    CLINICAL_RETRIEVAL = "clinical_retrieval"
     REFUSAL = "refusal"
     MODEL_ERROR = "model_error"
     TURN_COMPLETED = "turn_completed"
@@ -284,6 +285,29 @@ class AuditWriter:
             session_id=session_id,
             turn=turn,
             event=EventKind.CLINICAL_AUTH,
+            outcome=outcome,
+            detail=detail,
+            refs={"staff_id": detail.get("staff_id", "")} if detail.get("staff_id") else {},
+        )
+
+    def clinical_retrieval(
+        self, session_id: str, turn: int, detail: dict[str, Any], outcome: str
+    ) -> AuditRecord:
+        """spec §4.14 — *"Audit every call: session identifier, staff identifier,
+        query text, requested tier, effective tier, returned chunk identifiers,
+        and scores."*
+
+        The query text is recorded **in full and unredacted**, which is the one
+        place in this system where that is the requirement rather than the
+        failure. §4.14 asks for it by name: a reviewer checking whether a
+        retrieval was appropriate cannot do it against ``<query>``. It is a
+        clinician's own words about a presentation, in a clinical session's log,
+        which the §7.3 verifier treats differently from a patient session's.
+        """
+        return self.append(
+            session_id=session_id,
+            turn=turn,
+            event=EventKind.CLINICAL_RETRIEVAL,
             outcome=outcome,
             detail=detail,
             refs={"staff_id": detail.get("staff_id", "")} if detail.get("staff_id") else {},

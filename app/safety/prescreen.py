@@ -162,12 +162,24 @@ class Prescreen:
         if self._knowledge is None:
             return None
         try:
-            from app.knowledge.chunking import Tier
+            from app.knowledge.chunking import Tier, require_tiers
             from app.knowledge.red_flags import RED_FLAG_MIN_SCORE, is_emergency
+            from app.policy.decorator import current_session
 
-            hits = self._knowledge.search(
-                text, tiers=[Tier.ROUTING_ONLY], k=3, min_score=RED_FLAG_MIN_SCORE
-            )
+            # Through the chokepoint like every other retrieval (§1.3). The
+            # prescreen runs inside the session scope, but defensively: it is
+            # also constructed standalone in tests, and a screen that raised
+            # because no session was bound would fail *open* on the safety
+            # layer, which is the wrong direction to fail.
+            try:
+                role = current_session().effective_role
+            except Exception:  # noqa: BLE001
+                from app.store.session import Role
+
+                role = Role.PATIENT
+
+            tiers = require_tiers([Tier.ROUTING_ONLY], role)
+            hits = self._knowledge.search(text, tiers=tiers, k=3, min_score=RED_FLAG_MIN_SCORE)
         except Exception as exc:  # noqa: BLE001
             logger.warning("red-flag retrieval unavailable (%s)", type(exc).__name__)
             return None

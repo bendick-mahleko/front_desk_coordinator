@@ -36,6 +36,11 @@ SENSITIVE_FIELDS: dict[str, str] = {
     # credentials. A settings panel that showed one, or a log that kept one,
     # would be the same failure as a patient identifier in the log.
     "credential_token": "<credential>",
+    # A clinician's presentation text is health information about a patient,
+    # even when no patient is named. §4.14 requires the query in the audit log,
+    # so it is recorded there deliberately by the retrieval writer rather than
+    # arriving here by accident through the gate's argument view.
+    "query": "<query>",
     "identifier_1_value": "<identifier>",
     "identifier_2_value": "<identifier>",
     "phone_number": "<phone>",

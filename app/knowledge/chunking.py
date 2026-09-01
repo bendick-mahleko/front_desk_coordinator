@@ -22,18 +22,29 @@ no filter could separate them afterwards.
 from __future__ import annotations
 
 import re
-from enum import StrEnum
+from collections.abc import Iterable
 
 from pydantic import BaseModel, ConfigDict
 
-from app.knowledge.corpus import NOT_A_DOSE, DiseaseRecord
+from app.knowledge.corpus import DEFAULT_SOURCE, NOT_A_DOSE, DiseaseRecord
 from app.store.session import Role
+from app.tools.schemas import Tier
 
-
-class Tier(StrEnum):
-    PATIENT_SAFE = "patient_safe"
-    ROUTING_ONLY = "routing_only"
-    CLINICIAN_ONLY = "clinician_only"
+__all__ = [
+    "PATIENT_FACING_TIERS",
+    "STAFF_TICKET_TIERS",
+    "TIERS_BY_ROLE",
+    "Chunk",
+    "Tier",
+    "TierNotPermitted",
+    "TierViolation",
+    "chunk_all",
+    "chunk_record",
+    "narrow_to_role",
+    "require_tiers",
+    "slug",
+    "tiers_for",
+]
 
 
 PATIENT_FACING_TIERS = frozenset({Tier.PATIENT_SAFE})
@@ -99,6 +110,71 @@ def narrow_to_role(requested: frozenset[Tier] | set[Tier], role: Role) -> frozen
     return frozenset(requested) & tiers_for(role)
 
 
+class TierViolation(RuntimeError):
+    """A search named no tier at all.
+
+    Defined here rather than in ``store`` because ``require_tiers`` is now the
+    place that raises it and ``store`` imports this module, not the other way
+    round. ``app.knowledge.store`` re-exports it for existing callers.
+    """
+
+
+class TierNotPermitted(RuntimeError):
+    """A session asked to read a tier its role does not permit (spec §4.14).
+
+    Raised rather than quietly narrowed. §4.14 says a requested tier *"is
+    validated against the role's permitted set and rejected if it exceeds it; it
+    is never used to widen access"* — and a silent narrowing would hide a probe:
+    the caller would get an empty result and no reviewer would ever see that
+    somebody asked for the clinician tier from a patient session.
+    """
+
+    def __init__(self, requested: frozenset[Tier], permitted: frozenset[Tier], role: Role) -> None:
+        self.requested = requested
+        self.permitted = permitted
+        self.role = role
+        self.excess = requested - permitted
+        super().__init__(
+            f"role {role.value!r} may not read "
+            f"{sorted(t.value for t in self.excess)}; permitted: "
+            f"{sorted(t.value for t in permitted)}"
+        )
+
+
+def require_tiers(
+    requested: Iterable[Tier], role: Role, *, staff_ticket: bool = False
+) -> frozenset[Tier]:
+    """Resolve the tier filter for one retrieval. **The chokepoint.**
+
+    §1.3 is the governing sentence: the tier filter is *"decided when the
+    knowledge base is built and enforced at query construction, using the role
+    recorded on the session"*. Every retrieval in the system goes through here,
+    so "enforced at query construction" is one function a reviewer can read
+    rather than a habit spread across call sites.
+
+    ``staff_ticket`` opens the §4.12 exemption and nothing else: a
+    complex_symptoms escalation raised from a *patient* session must carry
+    clinician-only reference context onto the ticket. It is a keyword-only
+    argument with a default of False so it cannot be passed by accident, and it
+    is the only way to reach ``CLINICIAN_ONLY`` from a patient role anywhere in
+    the codebase.
+
+    Raises rather than returning an empty set, because "you asked for something
+    you cannot have" and "nothing matched" need different answers.
+    """
+    wanted = frozenset(requested)
+    if not wanted:
+        raise TierViolation("a search must name at least one tier")
+
+    permitted = tiers_for(role)
+    if staff_ticket:
+        permitted = permitted | STAFF_TICKET_TIERS
+
+    if wanted - permitted:
+        raise TierNotPermitted(wanted, permitted, role)
+    return wanted
+
+
 class Chunk(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -108,6 +184,10 @@ class Chunk(BaseModel):
     tier: Tier
     text: str
     source_row: int
+    source_document: str = DEFAULT_SOURCE.name
+    """The file this came from. §4.14 requires every returned chunk to name its
+    source document, and §4.16 requires a citation for every dosage value — a
+    citation to "the corpus" is not a citation."""
 
     def metadata(self) -> dict[str, str | int]:
         return {
@@ -115,6 +195,7 @@ class Chunk(BaseModel):
             "field": self.field,
             "tier": self.tier.value,
             "source_row": self.source_row,
+            "source_document": self.source_document,
         }
 
 

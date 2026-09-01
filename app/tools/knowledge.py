@@ -15,7 +15,7 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import Any
 
-from app.knowledge.chunking import Tier
+from app.knowledge.chunking import Tier, require_tiers
 from app.knowledge.red_flags import Severity, severity_for
 from app.knowledge.routing import DEFAULT, Routing, combine
 from app.policy.decorator import current_audit, current_session
@@ -75,7 +75,11 @@ def suggest_appointment_type(complaint: str) -> Any:
     routine appointment — escalate to staff instead.
     """
     store = knowledge_base()
-    hits = store.search(complaint, tiers=[Tier.ROUTING_ONLY], k=3)
+    # Resolved against the session role rather than named as a constant: §1.3
+    # puts the filter at query construction, and one chokepoint for every
+    # retrieval is what makes that reviewable.
+    tiers = require_tiers([Tier.ROUTING_ONLY], current_session().effective_role)
+    hits = store.search(complaint, tiers=tiers, k=3)
 
     # Audited so a reviewer can see what was retrieved and on what score, even
     # though none of it reaches the patient.
@@ -83,7 +87,7 @@ def suggest_appointment_type(complaint: str) -> Any:
         "retrieval",
         {
             "tool": "suggest_appointment_type",
-            "tiers": [Tier.ROUTING_ONLY.value],
+            "tiers": sorted(t.value for t in tiers),
             "hits": [{"chunk_id": h.chunk_id, "score": round(h.score, 3)} for h in hits],
         },
     )

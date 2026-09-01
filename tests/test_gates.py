@@ -71,7 +71,7 @@ VERIFIED_FUNCTIONS = {
 }
 CONDITIONAL_FUNCTIONS = {"send_secure_text"}
 
-CLINICAL_FUNCTIONS = {"authenticate_clinical_user"}
+CLINICAL_FUNCTIONS = {"authenticate_clinical_user", "search_clinical_knowledge"}
 """spec r3 §3.2, not §3.1.
 
 These sit at OPEN on the *patient* ladder because they touch no patient record —
@@ -212,6 +212,11 @@ VALID_ARGS: dict[str, dict] = {
         "staff_id": "STAFF-2001",
         "credential_token": "fixture-token-alvarez",
         "asserted_role": "physician",
+    },
+    "search_clinical_knowledge": {
+        "query": "productive cough with fever",
+        "tier": "clinician_only",
+        "k": 3,
     },
 }
 

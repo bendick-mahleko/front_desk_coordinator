@@ -19,10 +19,12 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from app.config import get_clinic_config
+from app.knowledge.chunking import TierNotPermitted, require_tiers
+from app.knowledge.store import DEFAULT_MIN_SCORE
 from app.policy.decorator import current_audit, current_session
 from app.store.session import Role
-from app.tools.registry import backends, tool
-from app.tools.schemas import ClinicalRole
+from app.tools.registry import backends, knowledge_base, tool
+from app.tools.schemas import ClinicalRole, Tier
 
 SCOPE = (
     "search_clinical_knowledge",
@@ -233,5 +235,126 @@ def authenticate_clinical_user(
             "it covers — the clinician needs to know which capabilities are live "
             f"and that the session lasts {clinic.clinical.session_minutes} minutes. "
             "Then answer their question. Do not repeat the scope on later turns."
+        ),
+    }
+
+
+# --------------------------------------------------- knowledge retrieval ---
+
+
+@tool("search_clinical_knowledge")
+def search_clinical_knowledge(
+    query: str,
+    tier: Tier,
+    k: int,
+    min_score: float | None = None,
+) -> Any:
+    """Retrieve source material from the indexed clinical documents.
+
+    Returns the source text itself, with a citation for every chunk. It does not
+    summarise, interpret, or draw a conclusion — that is deliberate, and you
+    must not present its output as though it had.
+
+    Choose the tier by what you need: `patient_safe` for a condition
+    description, `routing_only` for symptom text, `clinician_only` for treatment
+    and dosage. Asking for a tier this session may not read is refused, not
+    quietly narrowed, so ask for what you actually need.
+
+    An empty result is a real answer and means no indexed document matched
+    confidently. Say so and stop. Do not lower the threshold to find something,
+    do not retry the same question in different words hoping for a hit, and do
+    not fill the gap from your own knowledge — the corpus is a fixed set of
+    documents and its silence is information.
+
+    Every statement you build on this must cite the chunk it came from. Anything
+    you cannot cite to a returned chunk does not go in your answer.
+    """
+    session = current_session()
+    audit = current_audit()
+    store = knowledge_base()
+    floor = DEFAULT_MIN_SCORE if min_score is None else min_score
+
+    def record(outcome: str, **detail: Any) -> None:
+        # spec §4.14 — session and staff identifier, the query, the requested
+        # and effective tiers, the chunk ids and their scores. The query goes in
+        # unredacted: a reviewer cannot judge whether a retrieval was
+        # appropriate against a mask.
+        audit.note(
+            "clinical_retrieval",
+            {
+                "tool": "search_clinical_knowledge",
+                "staff_id": session.staff_id or "",
+                "query": query,
+                "requested_tier": tier.value,
+                "k": k,
+                "min_score": floor,
+                "outcome": outcome,
+                **detail,
+            },
+        )
+
+    # §1.3 / §4.14 — the filter is built from the role on the session, before
+    # the query is issued. effective_role rather than role: an expired session
+    # reads as SYSTEM and SYSTEM reads nothing.
+    try:
+        effective = require_tiers([tier], session.effective_role)
+    except TierNotPermitted as exc:
+        record(
+            "tier_refused",
+            effective_tier=None,
+            permitted=sorted(t.value for t in exc.permitted),
+        )
+        return _refuse(
+            "tier_not_permitted",
+            f"This session may not read the {tier.value} tier.",
+            "Ask for a tier this session holds, or tell the clinician the "
+            "material is outside what this session can retrieve. Do not "
+            "describe what it would have contained.",
+            permitted_tiers=sorted(t.value for t in exc.permitted),
+        )
+
+    hits = store.search(query, tiers=effective, k=k, min_score=floor)
+
+    record(
+        "no_match" if not hits else "ok",
+        effective_tier=[t.value for t in sorted(effective, key=lambda t: t.value)],
+        chunks=[{"chunk_id": h.chunk_id, "score": round(h.score, 3)} for h in hits],
+    )
+
+    if not hits:
+        # spec §6 — *"Treat a below-threshold retrieval as a valid, negative
+        # result, not an error."*
+        return {
+            "chunks": [],
+            "match": "none",
+            "min_score": floor,
+            "next_step": (
+                "No indexed document matched this query above the similarity "
+                "floor. Tell the clinician there is no confident match in the "
+                "source documents and stop. Do not answer from your own "
+                "knowledge and do not retry with a lower threshold."
+            ),
+        }
+
+    return {
+        "chunks": [
+            {
+                "chunk_id": hit.chunk_id,
+                "text": hit.text,
+                "record": hit.disease,
+                "field": hit.field,
+                "tier": hit.tier.value,
+                "source_document": hit.source_document,
+                "source_row": hit.source_row,
+                "citation": hit.citation,
+                "score": round(hit.score, 3),
+            }
+            for hit in hits
+        ],
+        "match": "found",
+        "next_step": (
+            "This is source material, not an answer. Quote or paraphrase only "
+            "what is here, cite each point to its chunk, and say plainly where "
+            "the documents do not cover something rather than supplying it."
         ),
     }

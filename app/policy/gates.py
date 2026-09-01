@@ -353,6 +353,15 @@ TOOL_POLICY: dict[str, Policy] = {
         requires_clinical_auth=False,
         redact=("credential_token",),
     ),
+    "search_clinical_knowledge": Policy(
+        GateLevel.OPEN,
+        rule="spec§4.14/clinical_knowledge_retrieval",
+        roles=CLINICAL_ONLY,
+        requires_clinical_auth=True,
+        # A clinician's query describes a presentation, which is health
+        # information about whoever they are describing.
+        redact=("query",),
+    ),
     "suggest_appointment_type": Policy(
         GateLevel.VERIFIED,
         rule="spec§4.5/appointment_search",
