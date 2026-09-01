@@ -7,7 +7,12 @@ checks insurance eligibility, shares clinic information, sends secure messages,
 creates new-patient records and escalates to staff. It does not diagnose, triage,
 advise on medication, interpret test results or make billing decisions.
 
-> **Status: v0.1.0 — prototype complete.** All nine phases are built: the
+> **Status: v0.2.0 — knowledge extension.** A vector database over 65 disease
+> records drives appointment routing, red-flag screening and clinician
+> briefings. Clinical treatment and dosage content is indexed but unreachable
+> from any patient-facing tool. See [`docs/rag-extension-plan.md`](docs/rag-extension-plan.md).
+>
+> **v0.1.0 — prototype complete.** All nine phases are built: the
 > policy core, the fifteen tool contracts, the agent loop, safety screening, a
 > hash-chained audit log, the browser UI and 24 scenario evals.
 >
@@ -189,7 +194,7 @@ evals/
   runner.py        Drives scenarios, asserts on the audit log
   judge.py         LLM judge, for claims that are genuinely about wording
   scenarios/       24 YAML scenarios
-tests/             657 tests, no network, no model
+tests/             719 tests, no network, no model
   replay.py        Recorded-transcript backend, so tests need no API
 clinic.yaml        Clinic policy and configuration
 ```

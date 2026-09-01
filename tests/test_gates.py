@@ -30,7 +30,12 @@ def gate(clinic) -> PolicyGate:
 def test_every_function_has_a_policy_and_vice_versa():
     """A function without a policy entry must fail the build, not default open."""
     assert set(TOOL_POLICY) == set(ARGUMENT_MODELS)
-    assert len(TOOL_POLICY) == 15
+
+
+def test_the_knowledge_extension_is_gated_at_verified():
+    """A complaint is health information about the person describing it, and the
+    routing it produces leads straight into booking, which is itself verified."""
+    assert TOOL_POLICY["suggest_appointment_type"].level is GateLevel.VERIFIED
 
 
 def test_every_named_precondition_exists():
@@ -56,6 +61,7 @@ OPEN_FUNCTIONS = {
 }
 IDENTIFIED_FUNCTIONS = {"verify_patient_identity"}
 VERIFIED_FUNCTIONS = {
+    "suggest_appointment_type",
     "get_patient_demographics",
     "get_patient_appointments",
     "check_insurance_eligibility",
@@ -168,6 +174,7 @@ VALID_ARGS: dict[str, dict] = {
     "check_business_hours": {},
     "get_clinic_directions": {"location": "main_clinic"},
     "escalate_to_staff": {"reason": "other", "priority": "routine", "notes": "Wants a person."},
+    "suggest_appointment_type": {"complaint": "itchy rash between my toes"},
 }
 
 
@@ -183,7 +190,7 @@ def satisfy_preconditions(session: Session, fn_name: str) -> Session:
     return session
 
 
-def test_all_fifteen_have_valid_argument_fixtures():
+def test_every_policy_entry_has_a_valid_argument_fixture():
     assert set(VALID_ARGS) == set(TOOL_POLICY)
 
 

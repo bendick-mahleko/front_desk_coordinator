@@ -321,6 +321,15 @@ class GetClinicDirectionsArgs(StrictArgs):
     location: Location
 
 
+# ------------------------------------------------------- knowledge base ---
+
+
+class SuggestAppointmentTypeArgs(StrictArgs):
+    """R3 — a complaint in the patient's own words, for routing only."""
+
+    complaint: Annotated[str, Field(min_length=3, max_length=500)]
+
+
 # --------------------------------------------------------------- escalation ---
 
 
@@ -352,5 +361,11 @@ ARGUMENT_MODELS: dict[str, type[StrictArgs]] = {
     "check_business_hours": CheckBusinessHoursArgs,
     "get_clinic_directions": GetClinicDirectionsArgs,
     "escalate_to_staff": EscalateToStaffArgs,
+    "suggest_appointment_type": SuggestAppointmentTypeArgs,
 }
-"""The fifteen functions of specification §2. Phase 3 registers exactly these."""
+"""The functions the assistant may call.
+
+Fifteen from specification §2, plus suggest_appointment_type from the knowledge
+extension. The extension adds an *administrative* function — it routes a
+complaint to a visit type — and deliberately adds nothing that returns clinical
+content to a patient."""

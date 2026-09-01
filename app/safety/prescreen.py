@@ -87,7 +87,7 @@ PAST_TENSE_GUARDS: tuple[re.Pattern[str], ...] = tuple(
 @dataclass(frozen=True)
 class Screening:
     label: Label
-    source: Literal["keyword", "model", "fallback"]
+    source: Literal["keyword", "retrieval", "model", "fallback"]
     matched: str | None = None
 
     @property
@@ -109,9 +109,15 @@ def keyword_screen(text: str) -> Screening | None:
 class Prescreen:
     """Classifies one inbound turn before the agent loop runs."""
 
-    def __init__(self, settings: Settings | None = None, client: Any = None) -> None:
+    def __init__(
+        self,
+        settings: Settings | None = None,
+        client: Any = None,
+        knowledge: Any = None,
+    ) -> None:
         self._settings = settings or get_settings()
         self._client = client
+        self._knowledge = knowledge
         self._prompt = (PROMPTS / "classifier.md").read_text(encoding="utf-8")
 
     @property
@@ -128,6 +134,10 @@ class Prescreen:
             logger.info("prescreen: emergency matched by keyword")
             return fast
 
+        retrieved = self._red_flag_screen(text)
+        if retrieved is not None:
+            return retrieved
+
         try:
             return Screening(self._ask_model(text), source="model")
         except Exception as exc:  # noqa: BLE001 - never block a turn on this
@@ -137,6 +147,38 @@ class Prescreen:
             # blocking every conversation on a classifier outage would be worse.
             logger.warning("prescreen classifier unavailable (%s)", type(exc).__name__)
             return Screening(Label.ROUTINE, source="fallback")
+
+    def _red_flag_screen(self, text: str) -> Screening | None:
+        """Layer two (R2): does the description resemble a red-flag condition?
+
+        Catches presentations the keyword list cannot enumerate — a description
+        of stroke symptoms in the patient's own words rather than the word
+        "stroke". The output is a label; no retrieved text is returned or shown.
+
+        Retrieval failure is never fatal. The classifier still runs, and the
+        keyword layer has already run, so a broken index degrades this to the
+        two-layer screen it was before rather than taking the turn down.
+        """
+        if self._knowledge is None:
+            return None
+        try:
+            from app.knowledge.chunking import Tier
+            from app.knowledge.red_flags import RED_FLAG_MIN_SCORE, is_emergency
+
+            hits = self._knowledge.search(
+                text, tiers=[Tier.ROUTING_ONLY], k=3, min_score=RED_FLAG_MIN_SCORE
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("red-flag retrieval unavailable (%s)", type(exc).__name__)
+            return None
+
+        for hit in hits:
+            if is_emergency(hit.disease):
+                logger.info("prescreen: emergency matched by retrieval")
+                # The disease name goes into the trace for a reviewer, never
+                # into a patient-facing reply.
+                return Screening(Label.EMERGENCY, source="retrieval", matched=hit.disease)
+        return None
 
     def _ask_model(self, text: str) -> Label:
         response = self.client.messages.create(

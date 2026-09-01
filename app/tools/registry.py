@@ -49,6 +49,7 @@ DOMAIN_MODULES = (
     "app.tools.messaging",
     "app.tools.clinic",
     "app.tools.escalation",
+    "app.tools.knowledge",
 )
 
 # What the model is told when a backend fails. Specification §6 requires the
@@ -107,6 +108,28 @@ def backend_scope(sim: ClinicSimulator) -> Iterator[ClinicSimulator]:
         yield sim
     finally:
         _BACKENDS.reset(token)
+
+
+_KNOWLEDGE: ContextVar[Any] = ContextVar("knowledge_base", default=None)
+
+
+@contextmanager
+def knowledge_scope(store: Any) -> Iterator[Any]:
+    """Bind the knowledge base for the duration of a turn."""
+    token = _KNOWLEDGE.set(store)
+    try:
+        yield store
+    finally:
+        _KNOWLEDGE.reset(token)
+
+
+def knowledge_base() -> Any:
+    store = _KNOWLEDGE.get()
+    if store is None:
+        raise NoBackendsError(
+            "no knowledge base is bound; wrap the call in registry.knowledge_scope(...)"
+        )
+    return store
 
 
 class NoBackendsError(RuntimeError):

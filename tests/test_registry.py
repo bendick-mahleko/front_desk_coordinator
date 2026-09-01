@@ -23,9 +23,9 @@ TOOLS = registry.load()
 # ------------------------------------------------------------- coverage ---
 
 
-def test_all_fifteen_functions_are_registered():
-    assert len(TOOLS) == 15
+def test_every_argument_model_is_registered_as_a_tool():
     assert set(TOOLS) == set(ARGUMENT_MODELS)
+    assert "suggest_appointment_type" in TOOLS, "the knowledge extension's tool"
 
 
 def test_every_registered_tool_has_a_policy():

@@ -269,6 +269,14 @@ TOOL_POLICY: dict[str, Policy] = {
         rule="spec§3/escalate_to_staff",
         redact=("notes",),
     ),
+    # Knowledge extension. Verified because a complaint is health information
+    # about the person describing it, and because the routing it produces leads
+    # straight into booking, which is itself verified.
+    "suggest_appointment_type": Policy(
+        GateLevel.VERIFIED,
+        rule="spec§4.5/appointment_search",
+        redact=("complaint",),
+    ),
 }
 
 

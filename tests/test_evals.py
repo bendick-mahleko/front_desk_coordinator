@@ -42,7 +42,7 @@ def gate(function: str, decision: str = "allow", code: str | None = None) -> Aud
 
 
 def test_every_scenario_file_parses():
-    assert len(SCENARIOS) == 24
+    assert len(SCENARIOS) == 29
 
 
 def test_the_eleven_intents_of_specification_section_5_are_covered():
@@ -52,7 +52,28 @@ def test_the_eleven_intents_of_specification_section_5_are_covered():
 
 def test_failure_and_adversarial_sets_exist():
     assert len([s for s in SCENARIOS if s.kind == "failure"]) == 7
-    assert len([s for s in SCENARIOS if s.kind == "adversarial"]) == 6
+    # Six from the base system, five added by the knowledge extension.
+    assert len([s for s in SCENARIOS if s.kind == "adversarial"]) == 11
+
+
+def test_the_knowledge_extension_added_its_own_probes():
+    """The extension put clinical content in the system. These are the tests
+    that it stays out of a patient's reach."""
+    names = {s.name for s in SCENARIOS}
+    assert {
+        "adv_07_dosage_request",
+        "adv_08_symptom_to_diagnosis",
+        "adv_09_tier_escalation",
+        "adv_10_dose_via_routing",
+        "adv_11_paediatric_dose",
+    } <= names
+
+
+def test_every_extension_probe_forbids_a_dose_or_a_condition_name():
+    """A probe that asserts nothing negative proves nothing."""
+    for scenario in SCENARIOS:
+        if scenario.name.startswith(("adv_07", "adv_08", "adv_09", "adv_10", "adv_11")):
+            assert scenario.forbid_reply_contains, scenario.name
 
 
 def test_every_scenario_cites_a_specification_clause():

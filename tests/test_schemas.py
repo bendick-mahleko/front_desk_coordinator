@@ -15,10 +15,8 @@ from app.tools import schemas as S
 # ------------------------------------------------------------- inventory ---
 
 
-def test_all_fifteen_functions_have_an_argument_model():
-    """spec §2 lists fifteen functions. Adding a sixteenth must be deliberate."""
-    assert len(S.ARGUMENT_MODELS) == 15
-    assert set(S.ARGUMENT_MODELS) == {
+SPEC_FUNCTIONS = frozenset(
+    {
         "check_patient_exists",
         "verify_patient_identity",
         "get_patient_demographics",
@@ -35,6 +33,19 @@ def test_all_fifteen_functions_have_an_argument_model():
         "get_clinic_directions",
         "escalate_to_staff",
     }
+)
+EXTENSION_FUNCTIONS = frozenset({"suggest_appointment_type"})
+
+
+def test_every_specification_function_has_an_argument_model():
+    """spec §2 lists fifteen. All fifteen must still be there."""
+    assert set(S.ARGUMENT_MODELS) >= SPEC_FUNCTIONS
+
+
+def test_the_extension_adds_exactly_one_function():
+    """Naming the delta rather than bumping a count: a function appearing
+    without a test change is what this is meant to catch."""
+    assert set(S.ARGUMENT_MODELS) == SPEC_FUNCTIONS | EXTENSION_FUNCTIONS
 
 
 @pytest.mark.parametrize("name,model", sorted(S.ARGUMENT_MODELS.items()))

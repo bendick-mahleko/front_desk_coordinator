@@ -10,8 +10,42 @@ from typing import Any
 
 from app.policy.decorator import current_audit, current_session
 from app.policy.redaction import redact_text
-from app.tools.registry import backends, tool
+from app.tools.registry import backends, knowledge_base, tool
 from app.tools.schemas import EscalationReason, Priority
+
+
+def _clinician_briefing(reason: EscalationReason, notes: str) -> str:
+    """Retrieve treatment context for a clinical escalation.
+
+    Two steps rather than one, and the reason matters. Searching the clinician
+    tier directly compares a *symptom* description against a *treatment*
+    paragraph — different vocabularies, so the match is weak and sometimes
+    wrong: a note describing cough, fever and chest pain retrieved "Common Cold"
+    ahead of Pneumonia. Matching symptoms against symptoms and then fetching
+    that condition's management chunk by id is both more accurate and exact.
+
+    Only for complex_symptoms: a billing or accessibility escalation has no use
+    for clinical content, and retrieving anyway would put it on tickets that do
+    not need it. Failure is silent by design — a briefing is a convenience for
+    staff, and losing it must never stop a patient being escalated.
+    """
+    if reason is not EscalationReason.COMPLEX_SYMPTOMS:
+        return ""
+    try:
+        from app.knowledge.chunking import Tier, slug
+        from app.knowledge.red_flags import BRIEFING_MIN_SCORE
+
+        store = knowledge_base()
+        matches = store.search(notes, tiers=[Tier.ROUTING_ONLY], k=2, min_score=BRIEFING_MIN_SCORE)
+        lines = []
+        for match in matches:
+            chunk = store.get(f"{slug(match.disease)}::management")
+            if chunk is not None:
+                lines.append(f"- ({match.score:.2f}) {chunk.text}")
+    except Exception:  # noqa: BLE001
+        return ""
+    return "\n".join(lines)
+
 
 EMERGENCY_INSTRUCTION = (
     "Tell the patient immediately to hang up and call their local emergency number "
@@ -53,6 +87,13 @@ def escalate_to_staff(
     # but a phone number or date of birth that drifted into it should not be
     # copied into the ticket.
     safe_notes = redact_text(notes) if notes else "(no notes supplied)"
+
+    # R4 — clinical reference material for the person picking this up. It is
+    # retrieved from the clinician tier, attached to the ticket, and never
+    # returned in the patient-facing payload below.
+    briefing = _clinician_briefing(reason, safe_notes)
+    if briefing:
+        safe_notes = f"{safe_notes}\n\n--- reference material, not a recommendation ---\n{briefing}"
 
     ticket = backends().staff.escalate(
         reason,

@@ -374,6 +374,7 @@ class Orchestrator:
         prescreen: Prescreen | None = None,
         audit: AuditWriter | None = None,
         mirror: Any = None,
+        knowledge: Any = None,
     ) -> None:
         self._settings = settings or get_settings()
         self._clinic = clinic or get_clinic_config()
@@ -381,10 +382,39 @@ class Orchestrator:
         self._backend = backend or AnthropicBackend(self._settings)
         self._channel = channel or DEFAULT_CHANNEL
         self._gate = PolicyGate(self._clinic)
-        self._prescreen = prescreen or Prescreen(self._settings)
+        # Built once per process: embedding a query is cheap, opening the store
+        # is not.
+        self._knowledge = knowledge if knowledge is not None else self._default_knowledge()
+        self._prescreen = prescreen or Prescreen(self._settings, knowledge=self._knowledge)
         self._audit = audit
         self._mirror = mirror
         registry.load()
+
+    def _default_knowledge(self) -> Any:
+        """Open the vector store, or run without one.
+
+        A missing or unbuilt index disables the knowledge features and leaves
+        every existing behaviour intact — the extension must not be able to stop
+        the front desk working.
+        """
+        try:
+            from app.knowledge.embedding import build_embedder
+            from app.knowledge.store import build_knowledge_base
+
+            store = build_knowledge_base(
+                build_embedder(self._settings), self._settings.vector_store_path
+            )
+            if store.count() == 0:
+                logger.warning("knowledge base is empty; run `uv run build-kb`")
+                return None
+            return store
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("knowledge base unavailable (%s)", type(exc).__name__)
+            return None
+
+    @property
+    def knowledge(self) -> Any:
+        return self._knowledge
 
     @property
     def simulator(self) -> ClinicSimulator:
@@ -484,6 +514,7 @@ class Orchestrator:
         with (
             session_scope(session, gate=self._gate, audit=recorder),
             registry.backend_scope(self._sim),
+            registry.knowledge_scope(self._knowledge),
         ):
             # spec §4.10 — a number the patient states is a number the patient
             # has confirmed. Captured before the loop so the gate can act on it

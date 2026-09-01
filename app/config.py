@@ -199,6 +199,17 @@ class Settings(BaseSettings):
 
     clinic_config_path: Path = Path("clinic.yaml")
     database_url: str = "sqlite:///./data/frontdesk.db"
+    embedding_provider: Literal["openrouter", "hashing"] = "openrouter"
+    """Which embedder builds and queries the index. "hashing" is deterministic
+    and offline — the test suite forces it, and it is the fallback when no
+    credential exists."""
+
+    embedding_model: str = "openai/text-embedding-3-small"
+    vector_store_path: Path = Path("data/vectors")
+    knowledge_min_score: float = 0.25
+    """Below this similarity a retrieval reports no confident match rather than
+    returning the least-bad neighbour."""
+
     audit_dir: Path = Path("audit")
     """Where the hash-chained log is written. Gitignored; a real deployment
     would point this at append-only storage."""

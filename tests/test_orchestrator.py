@@ -22,7 +22,7 @@ from app.orchestrator import (
 )
 from app.safety.prescreen import Label
 from app.store.session import Session, SubjectStatus
-from app.tools.schemas import AppointmentType, Modality
+from app.tools.schemas import ARGUMENT_MODELS, AppointmentType, Modality
 from tests.replay import (
     Call,
     ExplodingBackend,
@@ -410,7 +410,7 @@ def test_the_first_party_request_is_shaped_correctly():
     assert kwargs["output_config"]["effort"] == "medium"
     assert kwargs["betas"] == ["server-side-fallback-2026-07-01"]
     assert kwargs["fallbacks"] == "default"
-    assert len(kwargs["tools"]) == 15
+    assert len(kwargs["tools"]) == len(ARGUMENT_MODELS)
     assert kwargs["system"][0]["text"] == "s"
 
 
