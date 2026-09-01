@@ -36,7 +36,9 @@ SPEC_FUNCTIONS = frozenset(
 )
 EXTENSION_FUNCTIONS = frozenset({"suggest_appointment_type"})
 
-CLINICAL_FUNCTIONS = frozenset({"authenticate_clinical_user", "search_clinical_knowledge"})
+CLINICAL_FUNCTIONS = frozenset(
+    {"authenticate_clinical_user", "search_clinical_knowledge", "get_dosage_information"}
+)
 """spec r3 §2 — the clinical-review group. Grows to four across C4–C5.
 
 Listed separately from the patient functions rather than merged into one set,

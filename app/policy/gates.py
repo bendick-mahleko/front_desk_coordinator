@@ -362,6 +362,12 @@ TOOL_POLICY: dict[str, Policy] = {
         # information about whoever they are describing.
         redact=("query",),
     ),
+    "get_dosage_information": Policy(
+        GateLevel.OPEN,
+        rule="spec§4.16/dosage_information_review",
+        roles=CLINICAL_ONLY,
+        requires_clinical_auth=True,
+    ),
     "suggest_appointment_type": Policy(
         GateLevel.VERIFIED,
         rule="spec§4.5/appointment_search",

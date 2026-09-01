@@ -98,6 +98,20 @@ class Tier(StrEnum):
     CLINICIAN_ONLY = "clinician_only"
 
 
+class Cohort(StrEnum):
+    """Who a dose is for (spec §4.16).
+
+    Here rather than in ``app.knowledge.dosing`` for the same reason as ``Tier``:
+    it is a tool argument, and this module is where enums shared across layers
+    live without a cycle. ``dosing`` imports it.
+    """
+
+    ADULT = "adult"
+    PAEDIATRIC = "paediatric"
+    BOTH = "both"
+    """A request, never a result key."""
+
+
 class ClinicalRole(StrEnum):
     """The licensed directory roles §4.13 accepts.
 
@@ -412,6 +426,29 @@ class SearchClinicalKnowledgeArgs(StrictArgs):
     min_score: float | None = Field(default=None, ge=0.0, le=1.0)
 
 
+class GetDosageInformationArgs(StrictArgs):
+    """spec §4.16.
+
+    One of ``condition_name`` or ``medication_name``, not both and not neither.
+    ``condition_name`` is matched exactly against the indexed record names — a
+    near miss returns nothing rather than the closest row, because §4.16 says
+    *"Return no result rather than a near match"* and a near match here means one
+    condition's dose served as another's.
+    """
+
+    condition_name: str | None = Field(default=None, min_length=2, max_length=120)
+    medication_name: str | None = Field(default=None, min_length=2, max_length=120)
+    cohort: Cohort
+    include_treatment_context: bool = True
+
+    @model_validator(mode="after")
+    def _exactly_one_subject(self) -> GetDosageInformationArgs:
+        named = [bool(self.condition_name), bool(self.medication_name)]
+        if sum(named) != 1:
+            raise ValueError("name exactly one of condition_name or medication_name")
+        return self
+
+
 # ------------------------------------------------------------------ registry ---
 
 ARGUMENT_MODELS: dict[str, type[StrictArgs]] = {
@@ -433,6 +470,7 @@ ARGUMENT_MODELS: dict[str, type[StrictArgs]] = {
     "suggest_appointment_type": SuggestAppointmentTypeArgs,
     "authenticate_clinical_user": AuthenticateClinicalUserArgs,
     "search_clinical_knowledge": SearchClinicalKnowledgeArgs,
+    "get_dosage_information": GetDosageInformationArgs,
 }
 """The functions the assistant may call.
 

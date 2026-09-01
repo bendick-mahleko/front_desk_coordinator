@@ -11,9 +11,17 @@ import csv
 import hashlib
 import re
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
+
+from app.knowledge.dosing import (
+    Cohort,
+    CohortDosing,
+    DosageUnsplittable,
+    split_cohorts,
+)
 
 DATA_DIR = Path(__file__).parent / "data"
 DEFAULT_SOURCE = DATA_DIR / "disease_list.csv"
@@ -45,9 +53,32 @@ class DiseaseRecord(BaseModel):
     source_row: int
 
     @property
+    def cohorts(self) -> dict[Cohort, CohortDosing]:
+        """The dosage field split by cohort, verbatim (spec §4.16)."""
+        return split_cohorts(self.dosage)
+
+    @property
     def has_paediatric_dosing(self) -> bool:
-        """Weight-based paediatric dosing — the highest-harm content in the file."""
-        return "mg/kg" in self.dosage or "units/kg" in self.dosage
+        """Weight- or BSA-scaled *paediatric* dosing — the highest-harm content
+        in the file.
+
+        This was ``"mg/kg" in self.dosage or "units/kg" in self.dosage``, which
+        was wrong in both directions and measured so:
+
+        * It flagged **Stroke**, whose paediatric entry reads "Not applicable",
+          because its *adult* entry is ``tPA 0.9mg/kg IV``. Also Acne Vulgaris,
+          for adult isotretinoin.
+        * It missed four records whose paediatric entry is scaled in units the
+          list did not enumerate — ``mcg/kg`` (Digoxin, a narrow-therapeutic-index
+          cardiac glycoside), ``ml/kg`` (oral rehydration, twice), and
+          Levothyroxine.
+
+        Either error matters for §4.16: a false positive attaches a
+        paediatric-dosing warning to a record with no paediatric dosing, and a
+        false negative lets a scaled paediatric figure past the guard §8 asks to
+        be demonstrated.
+        """
+        return self.cohorts[Cohort.PAEDIATRIC].requires_maximum
 
 
 @dataclass
@@ -114,6 +145,17 @@ def load(path: Path | None = None) -> LoadReport:
             report.rejected.append((number, name, "dosage field is truncated"))
             continue
 
+        # spec §4.16 needs the cohorts separated, and the separation is
+        # substring arithmetic on the markers. A record that does not carry both
+        # markers has no safe reading — the boundaries would be wrong, and wrong
+        # boundaries mean one cohort's figure served as the other's. Rejected at
+        # load so a changed source file fails the build rather than the answer.
+        try:
+            split_cohorts(fields["dosage"])
+        except DosageUnsplittable as exc:
+            report.rejected.append((number, name, f"dosage will not split by cohort: {exc}"))
+            continue
+
         report.records.append(
             DiseaseRecord(
                 name=name,
@@ -142,3 +184,32 @@ def _looks_truncated(dosage: str) -> bool:
 def names(records: list[DiseaseRecord]) -> list[str]:
     """The indexed condition names, for the enum a patient-facing tool accepts."""
     return sorted(record.name for record in records)
+
+
+@lru_cache(maxsize=1)
+def records_by_name() -> dict[str, DiseaseRecord]:
+    """The corpus keyed by record name, loaded once.
+
+    §4.16 constrains ``condition_name`` to the indexed record names and wants the
+    treatment and dosage fields back verbatim. The vector store holds those two
+    fields combined into one chunk, so reconstructing them from a chunk would
+    mean parsing text this module already has structured. Reading the corpus is
+    the honest path — and the *authorization* to read the clinician tier is a
+    separate question, answered by ``chunking.require_tiers`` at the call site.
+    """
+    return {record.name: record for record in load().records}
+
+
+def canonical_name(name: str) -> str | None:
+    """Resolve a condition name, case- and whitespace-insensitively.
+
+    Exact on the name itself. §4.16: *"Return no result rather than a near match
+    when the requested condition or medication is not in the indexed corpus."*
+    Case and stray spacing are typing, not a different condition; anything else
+    is a near match and returns None.
+    """
+    wanted = " ".join(name.split()).casefold()
+    for candidate in records_by_name():
+        if " ".join(candidate.split()).casefold() == wanted:
+            return candidate
+    return None

@@ -79,7 +79,11 @@ renderer should therefore be driven by which fields a record actually carries,
 not by a hardcoded three-bullet template — otherwise this decision has to be
 unpicked by hand later. See C5.
 
-### 1.2 Only 1 of the 21 weight-based paediatric records has a maximum daily dose
+### 1.2 Only 1 of the 27 scaled cohort entries has a maximum daily dose
+
+> **Corrected in C4.** This section originally said 21 records, from a flag that
+> was wrong in both directions. Measured per cohort: 27 scaled entries, 1 with a
+> maximum. See C4 for what the old flag missed and why it matters.
 
 §4.16: *"A weight-based figure must never appear without its maximum."* §8, in
 the definition of done: *"Demonstrates that weight-based paediatric dosing is
@@ -434,7 +438,7 @@ for it by name, and a reviewer checking whether a retrieval was appropriate
 cannot do that against `<query>`. It is masked in the gate's argument view, so it
 lands in the retrieval record deliberately and nowhere else by accident.
 
-### C4 — `get_dosage_information` (1 day, ~45 tests)
+### C4 — `get_dosage_information` — **DONE** (43 tests)
 
 The highest-risk function in the release. Almost entirely deterministic.
 
@@ -473,17 +477,55 @@ would train the reader to skip the sentence that matters.
 - A.4 standing notice appended.
 - No patient-specific calculation; no prescription-shaped output.
 
-Exit: a property test over all 65 records asserts that no returned payload ever
-contains a `mg/kg` or `units/kg` figure without **all three** of a dosing basis, a
-maximum-daily-dose field, and — where that field reads `not recorded` — the
-`incomplete_source_notice`. Run over the whole corpus rather than a sample, and
-it is the restated §8 demonstration of §1.2. A second test asserts the count: 21
-weight-based paediatric records, 20 of them carrying the incomplete-source
-notice, so a corpus change that silently alters that ratio fails the build rather
-than passing quietly.
+Exit (all met): two tests run over all 65 records rather than a sample — no
+payload ever carries a scaled figure without all three of a dosing basis, a
+maximum-daily-dose field and (where absent) the escalated notice; and no cohort
+is ever served the other cohort's figure. Three mutants — detect only `mg/kg`,
+drop the escalated notice, substitute the other cohort — fail 7, 3 and 2 tests.
+The audit record carries whether the no-maximum path was taken, so Decision 2's
+residual risk can be *counted* rather than trusted.
 
-The audit record carries whether the no-maximum path was taken, so a reviewer can
-count how often the warning fired instead of trusting that it did.
+**§1.2's figures were wrong, and measuring properly found a real bug.** The
+counts in §1.2 came from `DiseaseRecord.has_paediatric_dosing`, which was
+`"mg/kg" in dosage or "units/kg" in dosage` over the *whole* field. That is wrong
+in both directions:
+
+| | |
+|---|---|
+| False positives | **Stroke**, whose paediatric entry reads "Not applicable" while its *adult* entry is `tPA 0.9mg/kg IV`. Also Acne Vulgaris, for adult isotretinoin. |
+| False negatives | Four records scaled in units the list did not enumerate — `mcg/kg` (**Digoxin**, the narrowest therapeutic index in the corpus), `ml/kg` (oral rehydration, twice), and Levothyroxine. |
+
+Either error matters here. A false positive attaches a paediatric-dosing warning
+to a record with no paediatric dosing; a false negative lets a scaled paediatric
+figure past the exact guard §8 asks to be demonstrated. Detection is now **per
+cohort** and on the *denominator* rather than a list of units.
+
+The corrected figures: **27 cohort entries carry a scaled figure and exactly one
+records a maximum** — 23 paediatric and 4 adult, against §1.2's "21 of 21". So
+the escalated notice fires **26 times out of 27**, not 20 of 21. Decision 2's
+warning-fatigue risk is slightly worse than it was assessed on, and the mitigation
+is unchanged.
+
+**Body surface area is treated as scaled.** §4.16 says "weight-based";
+Methotrexate's `10-15mg/m2` is exactly as unbounded, and reading the clause
+narrowly enough to exclude it would honour the words and miss the point.
+
+**Twelve paediatric entries carry an applicability qualifier in the marker
+itself** — `Children (6-12 years):`, `Children (10+):`, `Children (JIA):`,
+`Children (Iron deficiency):`. This was not in the plan and is the most
+consequential thing C4 found: that parenthetical is the *condition under which
+the dose applies*, and a split that returned only what follows the colon would
+hand back a 6-to-12-year-old's dose for a three-year-old with nothing marking the
+difference. It is captured and surfaced as `applies_to`.
+
+**A fixed dose carries no ceiling field at all.** Demanding a maximum for
+`Paracetamol 500-1000mg every 4-6 hours` would be noise, and noise is precisely
+what Decision 2's risk is. Fever (Pyrexia) is the one record that states maxima,
+and it is the test case that proves the discrimination: paediatric gets the
+routine formulary notice and *not* the incomplete-source one.
+
+`Cohort` joined `Tier` in `app/tools/schemas.py` for the same reason — §4.16
+makes it a tool argument.
 
 ### C5 — `summarize_diagnostic_considerations` (1 day, ~40 tests)
 

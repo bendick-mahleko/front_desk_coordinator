@@ -71,7 +71,11 @@ VERIFIED_FUNCTIONS = {
 }
 CONDITIONAL_FUNCTIONS = {"send_secure_text"}
 
-CLINICAL_FUNCTIONS = {"authenticate_clinical_user", "search_clinical_knowledge"}
+CLINICAL_FUNCTIONS = {
+    "authenticate_clinical_user",
+    "search_clinical_knowledge",
+    "get_dosage_information",
+}
 """spec r3 §3.2, not §3.1.
 
 These sit at OPEN on the *patient* ladder because they touch no patient record —
@@ -218,6 +222,7 @@ VALID_ARGS: dict[str, dict] = {
         "tier": "clinician_only",
         "k": 3,
     },
+    "get_dosage_information": {"condition_name": "Cystitis", "cohort": "both"},
 }
 
 

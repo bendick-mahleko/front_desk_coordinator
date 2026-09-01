@@ -86,8 +86,23 @@ def test_quoted_fields_parse(records):
 
 
 def test_paediatric_dosing_is_identifiable(records):
-    """21 records carry weight-based paediatric dosing — the highest-harm content."""
-    assert sum(1 for r in records if r.has_paediatric_dosing) == 21
+    """23 records carry scaled paediatric dosing — the highest-harm content.
+
+    Was 21, from a substring check for "mg/kg" or "units/kg" across the whole
+    dosage field. That was wrong in both directions and C4 measured how: it
+    flagged Stroke, whose paediatric entry reads "Not applicable" and whose
+    *adult* entry is tPA 0.9mg/kg, and missed four records scaled in mcg/kg or
+    ml/kg — including Digoxin, which is the narrowest therapeutic index in the
+    corpus. Detection is now per cohort and on the denominator rather than a
+    list of units.
+    """
+    flagged = {r.name for r in records if r.has_paediatric_dosing}
+
+    assert len(flagged) == 23
+    assert "Stroke" not in flagged, "adult-only weight dosing must not read as paediatric"
+    assert {"Atrial Fibrillation", "Food Poisoning", "Gastroenteritis", "Hypothyroidism"} <= (
+        flagged
+    ), "mcg/kg and ml/kg are weight-based too"
 
 
 # -------------------------------------------------------------- chunking ---

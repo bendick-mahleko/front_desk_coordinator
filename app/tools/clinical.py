@@ -19,12 +19,14 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from app.config import get_clinic_config
-from app.knowledge.chunking import TierNotPermitted, require_tiers
+from app.knowledge.chunking import TierNotPermitted, require_tiers, slug
+from app.knowledge.corpus import DEFAULT_SOURCE, canonical_name, records_by_name
+from app.knowledge.dosing import CohortDosing, cohorts_requested, split_cohorts
 from app.knowledge.store import DEFAULT_MIN_SCORE
 from app.policy.decorator import current_audit, current_session
 from app.store.session import Role
 from app.tools.registry import backends, knowledge_base, tool
-from app.tools.schemas import ClinicalRole, Tier
+from app.tools.schemas import ClinicalRole, Cohort, Tier
 
 SCOPE = (
     "search_clinical_knowledge",
@@ -358,3 +360,223 @@ def search_clinical_knowledge(
             "the documents do not cover something rather than supplying it."
         ),
     }
+
+
+# --------------------------------------------------- dosage reference (§4.16) ---
+
+NO_DOSING_RECORDED = "no dosing recorded in the source documents for this cohort"
+"""spec §4.16's exact wording for a cohort the source does not cover.
+
+*"Never present it as an absence of contraindication, and never substitute the
+other cohort's figure."* Both halves matter: this string says the documents are
+silent, not that the drug is safe here.
+"""
+
+NO_MAXIMUM_RECORDED = "not recorded in the source documents"
+
+VERIFICATION_NOTICE = (
+    "This figure is scaled to the patient, so it is a reference range and not a "
+    "dose. Verify it against the clinic's formulary for this patient before use."
+)
+"""spec §4.16 — the routine check on a scaled regimen.
+
+§4.16 requires it for paediatric weight-based dosing. It is applied to every
+scaled figure, adult included: alteplase at 0.9mg/kg needs a formulary check as
+much as a child's paracetamol does, and narrowing the rule to the cohort the
+clause happens to name would honour the words and miss the point.
+"""
+
+INCOMPLETE_SOURCE_NOTICE = (
+    "The source documents record no maximum daily dose for this regimen, so the "
+    "figure above is unbounded as recorded. Obtain the ceiling from the clinic's "
+    "formulary before this is used. This is a gap in the source set, not a "
+    "statement that no ceiling applies."
+)
+"""Decision 2 — the escalated notice, and a *separate field* from the routine one.
+
+Measured on this corpus: 27 cohort entries carry a scaled figure and exactly one
+records a maximum, so this fires 26 times out of 27. A notice that appears on
+almost every response is furniture, and the routine formulary check appears on
+all 27 — if they were one string, the reader would learn to skip the sentence
+that actually varies. Two fields, differently worded, separately assertable, so a
+UI can block on this one and footnote the other.
+"""
+
+STANDING_NOTICE = (
+    "Reference summary compiled from indexed source documents for clinician "
+    "review. Not a diagnosis, a treatment plan, or a prescription. The source set "
+    "is fixed at index build time and is not a current formulary or guideline "
+    "service. Clinical judgment and responsibility rest with the treating "
+    "clinician."
+)
+"""Appendix A.4, verbatim. Appended to every response §4.16 produces."""
+
+
+def _cohort_block(dosing: CohortDosing) -> dict[str, Any]:
+    """One cohort's Appendix A.2 block, assembled here rather than by the model.
+
+    The appendix's preamble is explicit that its structures are *"enforced by the
+    function result rather than left to the model's discretion"*, so every field
+    below is filled from the source text or from a fixed string — never composed.
+    """
+    who = "children" if dosing.cohort is Cohort.PAEDIATRIC else "adults"
+    block: dict[str, Any] = {
+        # The marker's qualifier is the condition under which the dose applies.
+        # "Children (6-12 years)" handed back as "children" would widen a dose to
+        # a three-year-old, which is the worst thing this function could do.
+        "applies_to": f"{who} ({dosing.qualifier})" if dosing.qualifier else who,
+        "recorded": dosing.recorded,
+        "dosing": dosing.text if dosing.recorded else NO_DOSING_RECORDED,
+        "dosing_basis": dosing.basis.value,
+    }
+
+    if not dosing.requires_maximum:
+        # A fixed figure needs no ceiling to be interpretable, and an absent
+        # cohort has no figure at all.
+        return block
+
+    block["maximum_daily_dose"] = dosing.maximum or NO_MAXIMUM_RECORDED
+    block["verification_notice"] = VERIFICATION_NOTICE
+    if dosing.maximum is None:
+        block["incomplete_source_notice"] = INCOMPLETE_SOURCE_NOTICE
+    return block
+
+
+@tool("get_dosage_information")
+def get_dosage_information(
+    cohort: Cohort,
+    condition_name: str | None = None,
+    medication_name: str | None = None,
+    include_treatment_context: bool = True,
+) -> Any:
+    """Look up treatment and dosage reference for a condition or a medication.
+
+    Name exactly one of condition_name or medication_name. A condition name must
+    match an indexed record; a near miss returns nothing rather than the closest
+    record, because the closest record's dose is a different drug.
+
+    Returns reference ranges as the source documents record them, word for word.
+    Reproduce them the same way: do not round, do not convert units, do not
+    restate a range as a single figure, and do not compute a dose for a patient's
+    weight, age or renal function. That calculation is the clinician's, and this
+    function has no patient in front of it.
+
+    Where a figure is scaled per kilogram or per square metre and the source
+    records no maximum, say so — the result carries the sentence to use. A scaled
+    figure without a ceiling is not a dose anyone can act on, and presenting it as
+    one would be worse than the gap it hides.
+
+    Where a cohort reads that no dosing is recorded, that means the documents are
+    silent. It does not mean the drug is safe for that cohort, and you must never
+    offer the other cohort's figure in its place.
+
+    Never format the result as a prescription or a medication order, and never
+    send any of it in a text message.
+    """
+    session = current_session()
+    audit = current_audit()
+
+    def record_call(outcome: str, **detail: Any) -> None:
+        # spec §4.16 — staff identifier, condition or medication requested,
+        # cohort, chunk identifiers returned.
+        audit.note(
+            "clinical_retrieval",
+            {
+                "tool": "get_dosage_information",
+                "staff_id": session.staff_id or "",
+                "condition_name": condition_name,
+                "medication_name": medication_name,
+                "cohort": cohort.value,
+                "outcome": outcome,
+                **detail,
+            },
+        )
+
+    # Authorization first, through the same chokepoint as every retrieval. This
+    # function reads the corpus rather than the vector store — an exact-name
+    # lookup has no similarity search to filter — so the tier check is explicit
+    # here rather than implied by a query.
+    try:
+        require_tiers([Tier.CLINICIAN_ONLY], session.effective_role)
+    except TierNotPermitted:
+        record_call("tier_refused")
+        return _refuse(
+            "tier_not_permitted",
+            "This session may not read treatment or dosage material.",
+            "Tell the clinician this session cannot retrieve dosage reference, "
+            "and do not describe what it would have contained.",
+        )
+
+    # --- resolve the subject ---------------------------------------------
+    if condition_name is not None:
+        name = canonical_name(condition_name)
+        if name is None:
+            record_call("not_in_corpus")
+            return _refuse(
+                "not_in_corpus",
+                f"{condition_name!r} is not one of the indexed records.",
+                "Do not answer from your own knowledge and do not offer the "
+                "nearest record — a neighbouring condition's dose is a different "
+                "drug. Say the condition is not in the source set. You may call "
+                "search_clinical_knowledge to find out what is.",
+            )
+    else:
+        # A medication is not a record name, so this one is a search. No hit
+        # means no result (§4.16).
+        if medication_name is None:  # pragma: no cover - the schema forbids it
+            return _refuse(
+                "invalid_arguments",
+                "Name a condition or a medication.",
+                "Call again with exactly one of condition_name or medication_name.",
+            )
+        tiers = require_tiers([Tier.CLINICIAN_ONLY], session.effective_role)
+        hits = knowledge_base().search(medication_name, tiers=tiers, k=1)
+        if not hits:
+            record_call("not_in_corpus")
+            return _refuse(
+                "not_in_corpus",
+                f"No indexed document records dosing for {medication_name!r}.",
+                "Say there is no confident match in the source documents and "
+                "stop. Do not answer from your own knowledge.",
+            )
+        name = hits[0].disease
+
+    record = records_by_name()[name]
+    cohorts = split_cohorts(record.dosage)
+    wanted = cohorts_requested(cohort)
+
+    blocks = {c.value: _cohort_block(cohorts[c]) for c in wanted}
+    record_call(
+        "ok",
+        record=name,
+        chunks=[f"{slug(name)}::management"],
+        bases={c.value: cohorts[c].basis.value for c in wanted},
+        maximum_recorded={c.value: cohorts[c].maximum is not None for c in wanted},
+    )
+
+    payload: dict[str, Any] = {
+        "record": name,
+        "source_document": DEFAULT_SOURCE.name,
+        "source_row": record.source_row,
+        "citation": f"{DEFAULT_SOURCE.name}, row {record.source_row}, {name}",
+        "cohorts": blocks,
+        "notice": STANDING_NOTICE,
+    }
+    if include_treatment_context:
+        payload["treatment_context"] = record.treatment
+
+    unbounded = [c for c in wanted if cohorts[c].requires_maximum and not cohorts[c].maximum]
+    payload["next_step"] = (
+        "Read the figures back exactly as they appear — same numbers, same units, "
+        "same intervals — and cite the record. State the standing notice once. "
+        "Do not calculate anything for a particular patient, and do not lay the "
+        "answer out as a prescription."
+        + (
+            " One or more cohorts here have a scaled figure with no recorded "
+            "maximum: say that plainly, in your own words, before the figure "
+            "rather than after it."
+            if unbounded
+            else ""
+        )
+    )
+    return payload
