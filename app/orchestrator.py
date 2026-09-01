@@ -46,14 +46,19 @@ PROMPTS = Path(__file__).parent / "prompts"
 
 PROMPT_BY_ROLE: dict[Role, str] = {
     Role.PATIENT: "system.md",
+    Role.CLINICAL_ASSISTANT: "clinical.md",
 }
 """Which prompt each principal runs on.
 
-``Role.CLINICAL_ASSISTANT`` is deliberately absent rather than pointed at
-``system.md``: the clinical framing is Appendix A.0's, it depends on the §4.14–
-§4.16 functions that do not exist yet, and a half-written prompt telling a model
-to cite retrieved context when there is nothing to retrieve would be worse than
-none. C7 supplies it; until then a clinical turn raises.
+Two files rather than one with a conditional section, because they disagree about
+almost everything: ``system.md`` opens as a receptionist and forbids diagnostic
+guidance; ``clinical.md`` opens as an information assistant whose entire job is
+summarising clinical documents. A single prompt trying to be both would have the
+model reading rules that do not apply to the person in front of it.
+
+``Role.SYSTEM`` has none. §1.1 makes it *"not a conversational participant"*, so
+an unauthenticated or expired clinical session cannot run a turn at all — which
+is what §4.13's "drop to the system role" has to mean if it means anything.
 """
 
 
@@ -493,9 +498,10 @@ class Orchestrator:
             # Loudly, not quietly. A clinical session that silently ran on the
             # patient prompt would look like it worked.
             raise PromptUnavailable(
-                f"no system prompt for role {role.value!r}. The clinical prompt "
-                f"is C7's obligation (docs/clinical-assistant-plan.md); until it "
-                f"exists a clinical session must not run a turn."
+                f"no system prompt for role {role.value!r}, so a turn cannot run. "
+                f"§1.1 makes the system role not a conversational participant: an "
+                f"unauthenticated or expired clinical session has to authenticate "
+                f"rather than converse."
             )
         now = datetime.now(self._clinic.tz)
         text = (
@@ -590,18 +596,41 @@ class Orchestrator:
             for number in extract_phones(user_text):
                 session.note_asserted_phone(number)
 
-            # spec §7 — detection comes before routine scheduling workflows, so
+            # spec §7.1 — detection comes before routine scheduling workflows, so
             # this runs before the transcript is even assembled.
-            screening = self._prescreen.classify(user_text)
-            prescreen_detail = {
-                "label": screening.label.value,
-                "source": screening.source,
-                "matched": screening.matched,
-            }
-            recorder.events.append(TraceEvent("prescreen", prescreen_detail))
-            recorder._record("prescreen", prescreen_detail)
-            if screening.is_emergency:
-                return self._emergency(session, user_text, recorder)
+            #
+            # §7.1 is titled *Patient-facing sessions*, and every bullet in it is
+            # about someone describing their own symptoms to a bot: advise
+            # emergency assistance, do not ask detailed symptom questions, do not
+            # give diagnostic guidance. §7.2 replaces all of it for a clinician.
+            #
+            # Running it anyway would be actively wrong rather than merely
+            # wasteful. A nurse describing a stroke presentation — which is the
+            # clinical role's whole purpose — would be interrupted and told to
+            # call an ambulance for themselves. So the screen is skipped, and the
+            # skip is recorded rather than silent: an audit log that simply had no
+            # prescreen record would look like an omission instead of a decision.
+            if session.role is Role.PATIENT:
+                screening = self._prescreen.classify(user_text)
+                prescreen_detail = {
+                    "label": screening.label.value,
+                    "source": screening.source,
+                    "matched": screening.matched,
+                }
+                recorder.events.append(TraceEvent("prescreen", prescreen_detail))
+                recorder._record("prescreen", prescreen_detail)
+                if screening.is_emergency:
+                    return self._emergency(session, user_text, recorder)
+            else:
+                screening = Screening(Label.ROUTINE, source="skipped")
+                prescreen_detail = {
+                    "label": screening.label.value,
+                    "source": screening.source,
+                    "matched": None,
+                    "reason": "spec§7.1 applies to patient-facing sessions only",
+                }
+                recorder.events.append(TraceEvent("prescreen", prescreen_detail))
+                recorder._record("prescreen", prescreen_detail)
 
             messages = self.build_messages(session, user_text, screening)
             system = self.system_blocks(session.role)

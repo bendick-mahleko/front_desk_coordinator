@@ -14,15 +14,16 @@ from contextlib import asynccontextmanager
 from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sse_starlette.sse import EventSourceResponse
 
+from app.channel import ClinicalChannel
 from app.config import ConfigError, Settings, get_clinic_config, get_settings
 from app.orchestrator import Orchestrator
 from app.policy.redaction import mask_phone
 from app.store.audit import AuditWriter
 from app.store.models import AuditMirror, SessionStore
-from app.store.session import Session
+from app.store.session import Role, Session
 
 logger = logging.getLogger("frontdesk")
 
@@ -36,6 +37,23 @@ class HealthChecks(BaseModel):
 
 
 class ChatRequest(BaseModel):
+    """The only thing a caller may say to a patient session.
+
+    ``extra="forbid"`` deliberately, matching ``StrictArgs`` on every tool
+    argument model. Pydantic's default is to *ignore* an unknown field, which
+    meant ``{"message": "hi", "role": "clinical_assistant"}`` returned 200 and
+    dropped the role. It could not elevate anything — the role is bound at
+    session establishment and nothing here reads a body field — but a 200 is an
+    answer, and the answer it gives is the wrong one. An integrator would ship
+    code believing it worked.
+
+    §3.2 makes channel and role configuration, *"not a runtime decision"*. An
+    endpoint that accepts the words and quietly discards them is a worse
+    expression of that than one that refuses them.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
     message: str = Field(min_length=1, max_length=4000)
     session_id: str | None = None
 
@@ -207,6 +225,48 @@ def create_app(orchestrator: Orchestrator | None = None) -> FastAPI:
         app.state.sessions[session.session_id] = session
         return session
 
+    @app.post("/clinical/session", response_model=SessionSummary, tags=["clinical"])
+    def establish_clinical_session() -> SessionSummary:
+        """Establish a session whose principal is clinical_assistant (spec §3.2).
+
+        A separate endpoint rather than a role field on ``/chat``, and that is the
+        whole design. §3.2: *"A Clinical Assistant session is never established on
+        a patient-facing channel. Channel eligibility is clinic configuration, not
+        a runtime decision."* A role parameter on the patient endpoint would make
+        it exactly the runtime decision that sentence forbids — anything that can
+        be asked for in a request body can be asked for by whoever can reach the
+        endpoint.
+
+        Establishing a session is not authenticating. The session comes back as
+        ``clinical_assistant`` with its *effective* role SYSTEM, which can call
+        nothing but ``authenticate_clinical_user`` (§4.13).
+        """
+        clinic = get_clinic_config()
+        if not clinic.clinical.enabled:
+            raise HTTPException(status_code=404, detail="clinical review is not enabled")
+
+        channel = ClinicalChannel.name
+        if not clinic.clinical.allows_channel(channel):
+            # Configuration disagreeing with itself. 503 rather than 404: the
+            # capability exists and the clinic has misconfigured it, which is an
+            # operator problem and should read like one.
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    f"clinical channel {channel!r} is not eligible in this clinic's configuration"
+                ),
+            )
+
+        session = Session(role=Role.CLINICAL_ASSISTANT, channel=channel)
+        app.state.sessions[session.session_id] = session
+        _store().save(session)
+        return SessionSummary(
+            session_id=session.session_id,
+            status=session.status.value,
+            turn_index=session.turn_index,
+            patient_id=session.patient_id,
+        )
+
     @app.post("/chat", tags=["chat"])
     def chat(request: ChatRequest) -> EventSourceResponse:
         """Run one turn, streaming trace events then the reply.
@@ -301,6 +361,15 @@ def create_app(orchestrator: Orchestrator | None = None) -> FastAPI:
                 "late_cancellation_hours": clinic.policy.late_cancellation_hours,
                 "max_slots_presented": clinic.policy.max_slots_presented,
                 "emergency_number": clinic.policy.emergency_number,
+            },
+            "clinical": {
+                "enabled": clinic.clinical.enabled,
+                "session_minutes": clinic.clinical.session_minutes,
+                "channels": list(clinic.clinical.channels),
+                "permitted_roles": [role.value for role in clinic.clinical.permitted_roles],
+                "directory": "SimulatedIdentityProvider",
+                # No credential material, ever. The identity provider holds the
+                # tokens; this process checks one and discards it (§3.2 item 2).
             },
             "storage": {
                 "database_url": settings.database_url,

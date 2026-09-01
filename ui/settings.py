@@ -98,6 +98,31 @@ def render(config: dict[str, Any] | None) -> None:
 
     st.divider()
 
+    # --- who else may be holding a session -----------------------------------
+    st.markdown("##### Clinical review (spec r3)")
+    clinical = config.get("clinical", {})
+    if not clinical.get("enabled"):
+        st.caption(
+            "Off. No session can be established as clinical_assistant, and the "
+            "four clinical-review functions are in no tool schema."
+        )
+    else:
+        st.success("Enabled", icon="✅")
+        _row("Session length", f"{clinical.get('session_minutes')} minutes")
+        _row("Eligible channels", ", ".join(clinical.get("channels", [])) or "—")
+        _row("Identity provider", clinical.get("directory"))
+        _row(
+            "Licensed roles",
+            ", ".join(r.replace("_", " ") for r in clinical.get("permitted_roles", [])) or "—",
+        )
+        st.caption(
+            "A patient-facing channel is never eligible, and that part is not "
+            "configurable. No credential material is shown here or held by this "
+            "process — the identity provider keeps the tokens."
+        )
+
+    st.divider()
+
     st.markdown("##### Service")
     _row("Version", service.get("version"))
     _row("Environment", service.get("environment"))

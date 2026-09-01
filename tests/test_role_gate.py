@@ -363,13 +363,38 @@ def test_the_orchestrator_passes_the_session_role_to_the_backend(sim, clinic):
     assert backend.seen_roles == [Role.PATIENT]
 
 
-def test_a_clinical_session_will_not_run_on_the_patient_prompt(sim, clinic):
-    """system.md opens as a receptionist, forbids diagnostic guidance, and
-    carries the §4.2 masking rules for a patient having their own record read
-    back. Running a clinician on it would put the wrong frame on the whole
-    exchange — so until C7 supplies the clinical prompt, the turn fails loudly
-    rather than looking like it worked.
+def test_a_clinical_session_runs_on_its_own_prompt(sim, clinic):
+    """C2 left this raising and C7 paid the debt.
+
+    Two files rather than one with a conditional section: system.md opens as a
+    receptionist and forbids diagnostic guidance, clinical.md opens as an
+    information assistant whose whole job is summarising clinical documents. A
+    single prompt trying to be both would have the model reading rules that do
+    not apply to the person in front of it.
     """
+    from app.orchestrator import Orchestrator
+    from tests.replay import ScriptedBackend, ScriptedPrescreen
+
+    orchestrator = Orchestrator(
+        sim=sim,
+        clinic=clinic,
+        prescreen=ScriptedPrescreen(),
+        backend=ScriptedBackend(script=[[]]),
+        knowledge=None,
+    )
+
+    patient = orchestrator.system_blocks(Role.PATIENT)[0]["text"]
+    clinician = orchestrator.system_blocks(Role.CLINICAL_ASSISTANT)[0]["text"]
+
+    assert patient != clinician
+    assert "receptionist" in patient
+    assert "clinical information assistant" in clinician
+
+
+def test_the_system_role_cannot_run_a_turn_at_all(sim, clinic):
+    """§1.1 — *"Not a conversational participant."* An unauthenticated or
+    expired clinical session reads as SYSTEM, and has to authenticate rather
+    than converse. There is deliberately no prompt for it."""
     from app.orchestrator import Orchestrator, PromptUnavailable
     from tests.replay import ScriptedBackend, ScriptedPrescreen
 
@@ -381,8 +406,8 @@ def test_a_clinical_session_will_not_run_on_the_patient_prompt(sim, clinic):
         knowledge=None,
     )
 
-    with pytest.raises(PromptUnavailable, match="C7"):
-        orchestrator.system_blocks(Role.CLINICAL_ASSISTANT)
+    with pytest.raises(PromptUnavailable, match="not a conversational participant"):
+        orchestrator.system_blocks(Role.SYSTEM)
 
 
 def test_the_patient_prompt_still_renders(sim, clinic):

@@ -117,6 +117,14 @@ embedder gap above rather than a design fault — but it is why C5 shows the sup
 score on every consideration, states that the ordering is not a likelihood
 ranking, and abstains with Appendix A.3 rather than presenting a weak match.
 
+**The model sometimes answers instead of retrieving.** Asked for the paediatric
+dose for "Pyrexia" in a clinical session, it replied that fever is a symptom
+rather than a diagnosis — its own clinical reasoning, with no tool call, which the
+clinical prompt explicitly forbids. The lookup would have succeeded. Nothing in
+the deterministic layer can prevent a model from declining to call a tool, so this
+is a prompt-and-eval problem rather than a code one, and it is the clearest
+argument for §8's insistence on adversarial demonstration.
+
 **Red-flag coverage is a curated list of 14 conditions.** Anything outside the
 65-record corpus is invisible to the layer entirely.
 
@@ -182,7 +190,7 @@ Stated plainly so the list above is read in proportion.
   false positives.
 - **Emergencies pre-empt everything.** Screened before the agent loop runs, with
   a deterministic keyword layer that works when the classifier does not.
-- **1091 tests run with no network and no model.**
+- **1122 tests run with no network and no model.**
 - **Clinical content is unreachable from a patient turn.** The restriction is a
   metadata filter on the query, not a rule in a prompt, so there is no wording
   that widens it.

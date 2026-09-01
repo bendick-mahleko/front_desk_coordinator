@@ -88,6 +88,29 @@ issue; a fixture that supplied a copay would make that untestable.
 
 ---
 
+## The clinical surface (spec r3)
+
+Two apps, on purpose. §3.2 forbids establishing a clinical session on a
+patient-facing channel, so the demo keeps them in separate windows:
+
+```
+uv run uvicorn app.main:app --port 8000
+uv run streamlit run ui/app.py       --server.port 8501   # patients
+uv run streamlit run ui/clinical.py  --server.port 8502   # staff
+```
+
+The clinical page has its own palette. Somebody glancing at a screen should be
+able to tell which side of the boundary they are on without reading a word.
+
+Establishing a session is not authenticating. Sign in with a fixture staff id and
+credential token from `app/clinic_sim/fixtures/staff.json` — `STAFF-2001` /
+`fixture-token-alvarez` is a physician. The other rows exist to be refused:
+`STAFF-2900` is a shared account, `STAFF-3001` is not a clinical role, and
+`STAFF-2006` has an expired credential.
+
+Set `clinical.enabled: false` in `clinic.yaml` and the endpoint returns 404, the
+page says so, and the four clinical functions are in no tool schema at all.
+
 ## Rebuilding the knowledge index
 
 ```

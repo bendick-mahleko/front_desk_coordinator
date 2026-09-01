@@ -689,7 +689,7 @@ log scan cannot be "fixed" by removing what §4.12 requires.
 `DOSE` moved out of three test files into `app/policy/clinical.py`. One definition
 too few for something three layers depend on.
 
-### C7 — Surfaces (½ day, ~20 tests)
+### C7 — Surfaces — **DONE** (30 tests)
 
 - `POST /clinical/session` — establishes a clinical-eligible session on the
   clinical channel. Separate from `/chat` because §3.2 makes channel eligibility
@@ -703,6 +703,55 @@ too few for something three layers depend on.
   identity, role, and expiry countdown; the Settings tab gains the clinical
   block. §4.13 requires the established role and its scope to be stated once at
   session start — that is a real UI element, not a log line.
+
+Exit (all met), plus **C2's debt paid**: `app/prompts/clinical.md` exists and
+`system_blocks` no longer raises for a clinical session. `Role.SYSTEM` still has
+no prompt, deliberately — §1.1 makes it not a conversational participant, so an
+unauthenticated or expired clinical session must authenticate rather than
+converse.
+
+The UI is a **separate Streamlit app** (`ui/clinical.py`, own port, own palette)
+rather than a tab beside the patient chat. §3.2 draws a channel boundary, and a
+demo that draws it inside one browser window is demonstrating the opposite.
+
+**Two defects only visible once a clinical turn could run.**
+
+§7.1's emergency prescreen was firing for clinical sessions. §7.1 is titled
+*Patient-facing sessions* and every bullet is about someone describing their own
+symptoms to a bot — so a nurse describing a stroke presentation, which is the
+clinical role's entire purpose, would have been interrupted and told to call an
+ambulance for themselves. Now scoped to `Role.PATIENT`, with the skip *recorded*
+(`source: "skipped"`) rather than silent: a log with no prescreen record would
+look like an omission instead of a decision.
+
+`ChatRequest` silently ignored unknown fields, so `{"message": "hi", "role":
+"clinical_assistant"}` returned 200 and dropped the role. It could not elevate
+anything — the role is bound at session establishment and no body field is read —
+but a 200 is an answer and it was the wrong one; an integrator would ship code
+believing it worked. Now `extra="forbid"`, matching `StrictArgs` on every tool
+argument model.
+
+**Three things the live run found that the test suite could not.**
+
+The model turned *"that calculation is the clinician's"* into **"Calculate the
+dose for this patient's weight before use"** — an imperative, which §7.2 says
+nothing this role produces may be. The prompt now says to state what the figure
+*is* ("this is a per-kilogram figure"), and the re-run says exactly that.
+
+Asked for the paediatric dose for **"Pyrexia"**, the lookup returned nothing: the
+record is named `Fever (Pyrexia)` and `canonical_name` was exact-only. Thirteen of
+the 65 names carry a parenthesised alias — DVT, IBS, OA, Pink Eye, Gallstones —
+and a clinician will type the short one. Resolving that is **not** the near match
+§4.16 forbids: the source is what says the two names are the same record, and
+§4.16's prohibition is on returning a *different* one. Measured: no alias
+collisions, and ambiguity fails closed. Typos still return nothing.
+
+**Still open, and it belongs to C8:** on the re-run the model answered the
+"Pyrexia" question *without calling the tool at all* — "fever is a symptom, not a
+diagnosis" — which is its own clinical reasoning, exactly what the prompt forbids.
+The code path is correct and tested; the model declined to use it. That is a
+scenario for C8, not a code fix, and it is the sharpest example so far of why §8
+asks for adversarial demonstration rather than unit tests.
 
 ### C8 — Evals (1 day, 12–15 scenarios)
 

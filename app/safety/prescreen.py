@@ -87,7 +87,15 @@ PAST_TENSE_GUARDS: tuple[re.Pattern[str], ...] = tuple(
 @dataclass(frozen=True)
 class Screening:
     label: Label
-    source: Literal["keyword", "retrieval", "model", "fallback"]
+    source: Literal["keyword", "retrieval", "model", "fallback", "skipped"]
+    """How the label was arrived at.
+
+    ``skipped`` means no screen ran, which happens in a clinical session: §7.1's
+    rules are all about a patient describing their own symptoms, and §7.2
+    replaces them for a clinician. Recorded as a source rather than by omitting
+    the record, so the audit log shows a decision instead of a gap.
+    """
+
     matched: str | None = None
 
     @property

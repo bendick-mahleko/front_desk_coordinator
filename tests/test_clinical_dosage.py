@@ -365,6 +365,51 @@ def test_a_condition_not_in_the_corpus_returns_nothing(call):
     assert "nearest record" in result["remedy"]
 
 
+def test_an_alias_the_source_encodes_in_the_name_resolves(call):
+    """Found live: asked for the paediatric dose for "Pyrexia", the assistant
+    was told the corpus does not cover fever — false, and it reads as an absence
+    of data rather than a lookup that did not match.
+
+    Thirteen of the 65 names carry a parenthesised alias, and a clinician will
+    type "DVT" or "IBS". That is not a near match: the source is what says the
+    two names are the same record. §4.16's prohibition is on returning a
+    *different* record, and this returns the same one.
+    """
+    assert canonical_name("Pyrexia") == "Fever (Pyrexia)"
+    assert canonical_name("Fever") == "Fever (Pyrexia)"
+    assert canonical_name("DVT") == "Deep Vein Thrombosis (DVT)"
+    assert canonical_name("pink eye") == "Conjunctivitis (Pink Eye)"
+
+    assert call(clinical(), condition_name="Pyrexia", cohort="paediatric")["record"] == (
+        "Fever (Pyrexia)"
+    )
+
+
+def test_a_typo_is_still_not_a_match(call):
+    """The line the alias half must not cross. "Cystits" is not Cystitis, and a
+    neighbouring condition's dose is a different drug."""
+    assert canonical_name("Cystits") is None
+    assert canonical_name("pneumonia complicated") is None
+    assert canonical_name("") is None
+
+
+def test_an_ambiguous_alias_resolves_to_nothing(monkeypatch):
+    """Fails closed. If a future corpus made one alias name two records,
+    guessing between them is exactly the near match §4.16 rules out."""
+    from app.knowledge import corpus
+
+    corpus._by_alias.cache_clear()
+    monkeypatch.setattr(
+        corpus,
+        "records_by_name",
+        lambda: {"Alpha (X)": object(), "Beta (X)": object()},
+    )
+
+    assert corpus.canonical_name("X") is None
+    assert corpus.canonical_name("Alpha") == "Alpha (X)"
+    corpus._by_alias.cache_clear()
+
+
 def test_case_and_spacing_are_typing_not_a_different_condition(call):
     assert canonical_name("  cystitis ") == "Cystitis"
     assert call(clinical(), condition_name="CYSTITIS", cohort="adult")["record"] == "Cystitis"

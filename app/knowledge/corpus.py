@@ -200,16 +200,61 @@ def records_by_name() -> dict[str, DiseaseRecord]:
     return {record.name: record for record in load().records}
 
 
-def canonical_name(name: str) -> str | None:
-    """Resolve a condition name, case- and whitespace-insensitively.
+ALIAS_IN_NAME = re.compile(r"^(?P<head>.*?)\s*\((?P<alias>[^()]+)\)\s*$")
+"""A record name of the form ``Fever (Pyrexia)``.
 
-    Exact on the name itself. §4.16: *"Return no result rather than a near match
-    when the requested condition or medication is not in the indexed corpus."*
-    Case and stray spacing are typing, not a different condition; anything else
-    is a near match and returns None.
+Thirteen of the 65 names carry one: DVT, IBS, OA, Pink Eye, Gallstones, Cold
+Sores. The parenthetical is an alias the *source* encoded in the name, not
+annotation this code invented.
+"""
+
+
+@lru_cache(maxsize=1)
+def _by_alias() -> dict[str, str]:
+    """Every way of naming a record, mapped to the record.
+
+    Resolving an alias is **not** a near match. §4.16 forbids returning the
+    nearest record because a neighbouring condition's dose is a different drug —
+    but "DVT" and "Deep Vein Thrombosis (DVT)" are the same record, and the
+    source is what says so. A clinician typing "IBS" has named the record
+    exactly; they have just used the half of the name in brackets.
+
+    Ambiguity fails closed. If a future corpus made one alias resolve to two
+    records, that alias resolves to neither, because guessing between them is
+    precisely the near match §4.16 rules out. Measured on this corpus: no
+    collisions.
     """
-    wanted = " ".join(name.split()).casefold()
-    for candidate in records_by_name():
-        if " ".join(candidate.split()).casefold() == wanted:
-            return candidate
-    return None
+    seen: dict[str, set[str]] = {}
+    for record in records_by_name():
+        forms = {record}
+        found = ALIAS_IN_NAME.match(record)
+        if found:
+            forms.add(found.group("head").strip())
+            forms.add(found.group("alias").strip())
+        for form in forms:
+            if form:
+                seen.setdefault(_folded(form), set()).add(record)
+    return {form: next(iter(records)) for form, records in seen.items() if len(records) == 1}
+
+
+def _folded(value: str) -> str:
+    return " ".join(value.split()).casefold()
+
+
+def canonical_name(name: str) -> str | None:
+    """Resolve a condition name to an indexed record, or None.
+
+    Accepts the full name, the part before a parenthesised alias, or the alias
+    itself — case- and whitespace-insensitively, because case and stray spacing
+    are typing rather than a different condition.
+
+    Accepts nothing else. §4.16: *"Return no result rather than a near match when
+    the requested condition or medication is not in the indexed corpus."* So
+    "Cystits" is not Cystitis, and "pneumonia complicated" is not Pneumonia.
+
+    The alias half exists because a live run found it missing: asked for the
+    paediatric dose for "Pyrexia", the assistant was told the corpus does not
+    cover fever — which is false, and reads as an absence of data rather than a
+    lookup that did not match.
+    """
+    return _by_alias().get(_folded(name))
