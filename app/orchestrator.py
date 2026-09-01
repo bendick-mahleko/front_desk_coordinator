@@ -57,6 +57,13 @@ MODEL_RETRIES = 3
 
 # Mid-conversation system messages are an Opus-5-family feature. On a model
 # without them the context block is prefixed to the user turn instead.
+_UNSET: Any = object()
+"""Distinguishes "no knowledge base" from "work one out".
+
+Without it, `knowledge=None` meant "build the default", so a caller — or a test
+— had no way to say explicitly that there should be none. A test asking for no
+index quietly picked up whatever was on disk."""
+
 SUPPORTS_MID_CONVERSATION_SYSTEM = frozenset(
     {"claude-opus-5", "claude-opus-4-8", "claude-fable-5", "claude-mythos-5"}
 )
@@ -374,7 +381,7 @@ class Orchestrator:
         prescreen: Prescreen | None = None,
         audit: AuditWriter | None = None,
         mirror: Any = None,
-        knowledge: Any = None,
+        knowledge: Any = _UNSET,
     ) -> None:
         self._settings = settings or get_settings()
         self._clinic = clinic or get_clinic_config()
@@ -384,7 +391,7 @@ class Orchestrator:
         self._gate = PolicyGate(self._clinic)
         # Built once per process: embedding a query is cheap, opening the store
         # is not.
-        self._knowledge = knowledge if knowledge is not None else self._default_knowledge()
+        self._knowledge = self._default_knowledge() if knowledge is _UNSET else knowledge
         self._prescreen = prescreen or Prescreen(self._settings, knowledge=self._knowledge)
         self._audit = audit
         self._mirror = mirror

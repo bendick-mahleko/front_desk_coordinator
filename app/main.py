@@ -256,6 +256,72 @@ def create_app(orchestrator: Orchestrator | None = None) -> FastAPI:
             for ticket in reversed(sim.staff.tickets())
         ]
 
+    @app.get("/config", tags=["ops"])
+    def config() -> dict[str, Any]:
+        """The settings this process is actually running with.
+
+        Every value here is either a model name, a path, a count or a policy
+        knob. **No secret is ever included** — the credential is reported by
+        *source* ("ANTHROPIC_API_KEY", "ant profile") and never by value, and a
+        test asserts that no configured key appears in the response.
+        """
+        clinic = get_clinic_config()
+        knowledge = _knowledge_summary()
+
+        return {
+            "service": {
+                "name": settings.app_name,
+                "version": settings.version,
+                "environment": settings.environment,
+            },
+            "language_model": {
+                "provider": settings.provider,
+                "agent_model": settings.route_model(settings.agent_model),
+                "classifier_model": settings.route_model(settings.classifier_model),
+                "effort": settings.effort,
+                "thinking": "adaptive",
+                "server_side_fallbacks": settings.fallbacks_enabled,
+                "credential_source": settings.credential_source() or "none",
+            },
+            "knowledge_base": {
+                "embedding_provider": settings.embedding_provider,
+                "embedding_model": (
+                    settings.embedding_model
+                    if settings.embedding_provider == "openrouter"
+                    else "hashing-v1 (deterministic, offline)"
+                ),
+                "vector_store_path": str(settings.vector_store_path),
+                "min_similarity": settings.knowledge_min_score,
+                **knowledge,
+            },
+            "clinic_policy": {
+                "clinic": clinic.name,
+                "timezone": clinic.timezone,
+                "verification_attempt_limit": clinic.policy.verification_attempt_limit,
+                "late_cancellation_hours": clinic.policy.late_cancellation_hours,
+                "max_slots_presented": clinic.policy.max_slots_presented,
+                "emergency_number": clinic.policy.emergency_number,
+            },
+            "storage": {
+                "database_url": settings.database_url,
+                "audit_dir": str(settings.audit_dir),
+            },
+        }
+
+    def _knowledge_summary() -> dict[str, Any]:
+        """Index state, reported without letting a failure take /config down."""
+        try:
+            store = _orchestrator().knowledge
+            if store is None:
+                return {"status": "not built — run `uv run build-kb`", "chunks": 0}
+            return {
+                "status": "ready",
+                "store": type(store).__name__,
+                "chunks": store.count(),
+            }
+        except Exception as exc:  # noqa: BLE001
+            return {"status": f"unavailable ({type(exc).__name__})", "chunks": 0}
+
     @app.get("/session/{session_id}", response_model=SessionSummary, tags=["chat"])
     def session_summary(session_id: str) -> SessionSummary:
         session = _session(session_id)

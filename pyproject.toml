@@ -1,6 +1,6 @@
 [project]
 name = "front-desk-coordinator"
-version = "0.0.1"
+version = "0.2.0"
 description = "AI Front Desk Coordinator — clinic front-desk assistant prototype"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"

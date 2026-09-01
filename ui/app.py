@@ -16,6 +16,7 @@ import streamlit as st
 
 from ui import outbox as outbox_view
 from ui import queue as queue_view
+from ui import settings as settings_view
 from ui import trace as trace_view
 
 API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
@@ -136,7 +137,14 @@ with st.sidebar:
     st.button("Start a new conversation", on_click=reset_session, use_container_width=True)
 
     st.divider()
-    st.caption(f"Model: `{health.get('agent_model', '?')}`  ({health.get('provider', '?')})")
+    config = get_json("/config") or {}
+    model = config.get("language_model", {})
+    knowledge = config.get("knowledge_base", {})
+
+    st.caption("Running with")
+    st.markdown(f"`{model.get('agent_model', health.get('agent_model', '?'))}`")
+    st.caption(f"embeddings: `{knowledge.get('embedding_model', '—')}`")
+    st.caption(f"{knowledge.get('chunks', 0)} knowledge chunks · see the Settings tab")
     if health.get("status") != "ok":
         st.warning("Service is degraded — see /health.", icon="⚠️")
 
@@ -178,7 +186,7 @@ with chat_column:
         st.rerun()
 
 with trace_column:
-    tabs = st.tabs(["Policy gate", "Outbox", "Staff queue"])
+    tabs = st.tabs(["Policy gate", "Outbox", "Staff queue", "Settings"])
 
     with tabs[0]:
         st.caption(
@@ -197,3 +205,10 @@ with trace_column:
 
     with tabs[2]:
         queue_view.render(get_json("/staff/queue") or [])
+
+    with tabs[3]:
+        st.caption(
+            "What this process is actually running with. Read from the live service, "
+            "not from a config file."
+        )
+        settings_view.render(config or get_json("/config"))

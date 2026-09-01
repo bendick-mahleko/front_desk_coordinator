@@ -189,6 +189,7 @@ ui/
   trace.py         The policy-gate panel — the demo surface
   outbox.py        Sent messages and delivery status
   queue.py         Staff escalations
+  settings.py      What this process is running with
 evals/
   schema.py        The scenario format
   runner.py        Drives scenarios, asserts on the audit log
@@ -240,7 +241,18 @@ everywhere outside the US.
 
 ## The interface
 
-Chat on the left, the gate's reasoning on the right. Every function call the
+Chat on the left, the gate's reasoning on the right. Four tabs: **Policy gate**,
+**Outbox**, **Staff queue** and **Settings**.
+
+**Settings** reads `GET /config` and shows what the running process is actually
+using — the assistant model, the safety classifier, the embedding model, the
+vector store and its chunk count, and the clinic policy knobs. It reads from the
+live service rather than a config file, because the process may have been
+started with different environment variables than the file suggests.
+
+No secret appears there. The credential is reported by *source*
+(`OPENROUTER_API_KEY`, `ant profile`) and never by value, and a test plants keys
+in the environment then asserts none of them appear in the response. Every function call the
 model proposed appears in the trace panel with the level it needed, the level
 the session had, the rule it was decided under, and how long it took — denials
 expanded by default. Two more tabs show the SMS outbox and the staff queue.

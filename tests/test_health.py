@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
+from app import __version__
 from app.config import ConfigError, get_clinic_config, get_settings, reset_config_cache
 from app.main import create_app
 
@@ -42,7 +43,7 @@ def test_health_reports_service_identity(client):
     body = client.get("/health").json()
 
     assert body["service"] == "AI Front Desk Coordinator"
-    assert body["version"] == "0.0.1"
+    assert body["version"] == __version__
     assert body["environment"] in {"dev", "test", "prod"}
 
 

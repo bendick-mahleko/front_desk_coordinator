@@ -166,7 +166,7 @@ class Settings(BaseSettings):
     )
 
     app_name: str = "AI Front Desk Coordinator"
-    version: str = "0.0.1"
+    version: str = "0.2.0"
     environment: Literal["dev", "test", "prod"] = "dev"
 
     api_host: str = "0.0.0.0"
