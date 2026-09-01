@@ -29,6 +29,7 @@ advise on medication, interpret test results or make billing decisions.
 | see it work in eight minutes | [`docs/demo.md`](docs/demo.md) |
 | operate it, break it, read its log | [`docs/runbook.md`](docs/runbook.md) |
 | know what it cannot do | [`docs/gaps.md`](docs/gaps.md) |
+| plan the clinician-facing role (spec r3) | [`docs/clinical-assistant-plan.md`](docs/clinical-assistant-plan.md) |
 | review the safety argument | `app/policy/gates.py`, then `verification.py` and `provenance.py` |
 
 ## Quick start
