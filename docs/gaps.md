@@ -182,7 +182,7 @@ Stated plainly so the list above is read in proportion.
   false positives.
 - **Emergencies pre-empt everything.** Screened before the agent loop runs, with
   a deterministic keyword layer that works when the classifier does not.
-- **1073 tests run with no network and no model.**
+- **1091 tests run with no network and no model.**
 - **Clinical content is unreachable from a patient turn.** The restriction is a
   metadata filter on the query, not a rule in a prompt, so there is no wording
   that widens it.

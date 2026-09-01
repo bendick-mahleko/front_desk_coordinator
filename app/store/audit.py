@@ -19,6 +19,8 @@ import json
 import threading
 import uuid
 from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -47,6 +49,28 @@ class EventKind:
     TURN_COMPLETED = "turn_completed"
 
 
+_RECORD_ROLE: ContextVar[str | None] = ContextVar("audit_role", default=None)
+
+
+@contextmanager
+def audit_role(role: str | None) -> Iterator[None]:
+    """Bind the principal every record written in this scope belongs to.
+
+    A ContextVar rather than a field on the writer, because one writer serves
+    every session in the process and two concurrent requests must not be able to
+    label each other's records. The codebase already binds the session, the gate
+    and the backends this way.
+
+    Bound by ``session_scope``, so it is set for every tool call by construction
+    rather than by each audit call site remembering.
+    """
+    token = _RECORD_ROLE.set(role)
+    try:
+        yield
+    finally:
+        _RECORD_ROLE.reset(token)
+
+
 class AuditRecord(BaseModel):
     """One line of the log."""
 
@@ -63,6 +87,15 @@ class AuditRecord(BaseModel):
     gate: dict[str, Any] | None = None
     outcome: str | None = None
     latency_ms: int | None = None
+
+    role: str | None = None
+    """The principal this record was written under (spec r3 §7.3).
+
+    Bound from the session by ``audit_role``, so every record carries it without
+    eleven writer methods each having to remember. Absent is still treated as
+    *patient* by the verifier — a record written outside a session scope gets the
+    stricter scan, which is the right way for that to fail.
+    """
     refs: dict[str, str] = Field(default_factory=dict)
     detail: dict[str, Any] | None = None
     error: str | None = None
@@ -170,6 +203,10 @@ class AuditWriter:
         **fields: Any,
     ) -> AuditRecord:
         with self._lock:
+            # The role comes from the turn's scope rather than from each caller.
+            # Explicitly-passed values win, so a writer method can still be
+            # specific if it ever needs to be.
+            fields.setdefault("role", _RECORD_ROLE.get())
             record = AuditRecord(
                 event_id=uuid.uuid4().hex,
                 ts=datetime.now(UTC).isoformat(),

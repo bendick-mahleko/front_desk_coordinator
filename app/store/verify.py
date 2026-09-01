@@ -1,8 +1,16 @@
 """Chain verifier — `uv run verify-audit` (P6-T3).
 
-Walks an audit file and checks two things at every record: that its own hash
-matches its contents, and that its ``prev_hash`` matches the record before it.
-Either check failing localises the tampering to a line number.
+Walks an audit file and checks, at every record: that its own hash matches its
+contents, that its ``prev_hash`` matches the record before it, that no protected
+patient data reached it, and — added by r3 — that no clinician-only material
+reached a record written under the patient role. Any check failing localises the
+problem to a line number.
+
+The last two scans are orthogonal. The first asks "did a fact about a *patient*
+leak into the log". The second asks "did clinical material cross a *role*
+boundary". A dose in a clinical session's log is the feature working; the same
+dose in a patient session's log is a §7.3 violation, and only the record's role
+tells them apart.
 
 The verifier runs at the end of every eval in Phase 8, so a change that starts
 writing an unverifiable log is caught by the suite rather than by an auditor.
@@ -18,6 +26,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from app.policy.clinical import clinical_content
 from app.policy.redaction import SAFE_REFERENCE_FIELDS, contains_protected_data
 from app.store.audit import GENESIS_HASH, AuditRecord
 
@@ -109,6 +118,10 @@ def verify_file(path: Path, check_pii: bool = True) -> VerificationReport:
             if leak:
                 report.problems.append(Problem(number, record.event_id, "pii", leak))
 
+            crossing = _cross_role_leak(record, line)
+            if crossing:
+                report.problems.append(Problem(number, record.event_id, "cross_role", crossing))
+
         expected_prev = record.hash
 
     return report
@@ -135,6 +148,47 @@ def _pii_leak(line: str) -> str | None:
         for text in _strings(value):
             if contains_protected_data(text):
                 return f"protected data in field {field_name!r}"
+    return None
+
+
+CLINICAL_ROLE = "clinical_assistant"
+
+
+def _cross_role_leak(record: AuditRecord, line: str) -> str | None:
+    """spec §7.3, *"asserted in the audit verifier"* — this is that clause.
+
+    A record written under the clinical role may carry clinician-only material:
+    that is what §4.14–§4.16 are for. Every other record may not, and a record
+    that names no role is treated as the stricter case (see ``AuditRecord.role``).
+
+    Worth being straight about what this catches today: **nothing**. Measured on
+    a patient escalation that legitimately attaches clinician-only context to a
+    staff ticket, the log holds no dose at all — the tool result records an
+    outcome rather than a body, and the notes argument is redacted on the way in.
+    So this is a tripwire for a regression rather than a fix for a leak, which is
+    what a verifier assertion should be. It fails the moment somebody starts
+    logging a tool result body, which is a change that would otherwise look
+    harmless.
+
+    Structural fields are skipped for the same reason the PII scan skips them:
+    a chunk id is a reference, and the function name ``get_dosage_information``
+    contains the word "dosage" without containing a dose.
+    """
+    if record.role == CLINICAL_ROLE:
+        return None
+
+    payload = json.loads(line)
+    for field_name, value in payload.items():
+        if field_name in SCAN_EXEMPT or field_name in SAFE_REFERENCE_FIELDS:
+            continue
+        if field_name in ("event", "function", "role"):
+            # Names, not content. "get_dosage_information" is a function that a
+            # patient session cannot call, and saying so is not a leak.
+            continue
+        for text in _strings(value):
+            reason = clinical_content(text)
+            if reason is not None:
+                return f"{reason} in field {field_name!r} under role {record.role or 'patient'!r}"
     return None
 
 

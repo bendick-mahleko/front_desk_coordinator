@@ -21,6 +21,7 @@ from typing import Any, Protocol, TypeVar
 from app.config import ClinicConfig
 from app.policy import provenance
 from app.policy.gates import PolicyGate, Verdict
+from app.store.audit import audit_role
 from app.store.session import Session
 
 T = TypeVar("T")
@@ -114,9 +115,15 @@ def session_scope(
     session_token = _CURRENT_SESSION.set(session)
     gate_token = _GATE.set(gate or PolicyGate(clinic))
     audit_token = _AUDIT.set(audit) if audit is not None else None
+    # spec r3 §7.3 — every audit record written inside this scope is labelled
+    # with the principal that wrote it, so the verifier can tell a clinician
+    # reading dosage material from a patient session leaking it.
+    role_scope = audit_role(session.role.value)
+    role_scope.__enter__()
     try:
         yield session
     finally:
+        role_scope.__exit__(None, None, None)
         if audit_token is not None:
             _AUDIT.reset(audit_token)
         _GATE.reset(gate_token)
