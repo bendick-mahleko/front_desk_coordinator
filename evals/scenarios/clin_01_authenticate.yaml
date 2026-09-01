@@ -1,0 +1,19 @@
+name: clin_01_authenticate
+kind: intent
+role: clinical_assistant
+spec: "spec §5.2 — 'Log me in as clinical staff'"
+description: >-
+  §4.13. The session is established as clinical_assistant on the clinical
+  channel, and arrives with no capabilities: its effective role is SYSTEM until
+  a credential is checked. §4.13 also requires the established role and its
+  scope to be stated once at session start, which is a reply assertion because
+  the tool result carries the scope and the model has to pass it on.
+turns:
+  - "Log me in as clinical staff. My staff id is STAFF-2001 and my credential token is fixture-token-alvarez. I am a physician."
+expect_tools: [authenticate_clinical_user]
+expect_reply_contains: ["physician"]
+forbid_reply_contains: ["fixture-token-alvarez"]
+judge: >-
+  Did the assistant state, once, which role was established and what it covers
+  or how long the session lasts? It should not have read the credential token
+  back.

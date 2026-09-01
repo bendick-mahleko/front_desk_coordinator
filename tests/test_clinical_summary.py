@@ -529,3 +529,74 @@ def test_the_gate_record_masks_the_presentation():
     view = PolicyGate().audit_view("summarize_diagnostic_considerations", {"presentation": STROKE})
 
     assert view["presentation"] == "<presentation>"
+
+
+# --------------------------------------------- the confident-match floor ---
+
+
+def test_the_floor_is_a_property_of_the_embedding_space():
+    """Found by an eval, not by reasoning about it.
+
+    The invented presentation "reticulated periorbital chromatosis with stellate
+    induration" scored 0.37 against Psoriasis on the live embedder, cleared the
+    0.25 routing floor, and produced a three-condition summary — exactly the
+    weak-match summary §4.15 says to replace with A.3.
+
+    The two embedders separate at measurably different points, so one constant
+    would make the real one credulous or the hashing one mute:
+
+    | space      | real presentations | invented jargon | gibberish |
+    |------------|--------------------|-----------------|-----------|
+    | hashing    | 0.41 – 0.66        | 0.00 – 0.14     | 0.00      |
+    | OpenRouter | 0.71 – 0.74        | 0.37 – 0.45     | 0.18      |
+    """
+    from app.config import Settings
+    from app.knowledge.embedding import HashingEmbedder, OpenRouterEmbedder
+
+    assert HashingEmbedder().confident_score == 0.30
+    assert OpenRouterEmbedder(settings=Settings(openrouter_api_key="k")).confident_score == 0.55
+
+
+def test_the_confident_floor_is_higher_than_the_routing_floor():
+    """Different questions. DEFAULT_MIN_SCORE asks "is this a match at all" and
+    was tuned for routing a patient's plain-language complaint to a visit type;
+    this asks "is it strong enough to summarise for a clinician", and a
+    clinician-facing summary earns a higher bar than a scheduling decision."""
+    from app.knowledge.embedding import HashingEmbedder
+    from app.knowledge.store import DEFAULT_MIN_SCORE
+
+    assert HashingEmbedder().confident_score > DEFAULT_MIN_SCORE
+
+
+def test_the_store_reports_its_embedders_floor(kb):
+    assert kb.confident_score == 0.30
+
+
+def test_invented_clinical_jargon_abstains(call):
+    """The eval's finding, as a unit test. Invented morphemes built from real
+    ones are the hard case: gibberish is easy to reject and a real presentation
+    is easy to accept."""
+    result = call(
+        clinical(),
+        presentation="reticulated periorbital chromatosis with stellate induration",
+    )
+
+    assert result["match"] == "none"
+    assert result["summary"] == NO_CONFIDENT_MATCH
+
+
+def test_a_real_presentation_still_gets_a_summary(call):
+    """The other direction, and the one a floor change is most likely to break:
+    a bar set high enough to reject everything is not a bar."""
+    for presentation in (CHEST, STROKE, ABDOMEN):
+        assert call(clinical(), presentation=presentation)["match"] == "found", presentation
+
+
+def test_the_abstention_records_the_floor_it_used(call, audit):
+    """A reviewer reading "no confident match" needs to know what confident
+    meant, or the record cannot be re-examined when the floor changes."""
+    call(clinical(), presentation="xyzzy plugh frotz blorple")
+
+    detail = audit.of_kind("clinical_retrieval")[0]
+    assert detail["no_match"] is True
+    assert detail["min_score"] == 0.30

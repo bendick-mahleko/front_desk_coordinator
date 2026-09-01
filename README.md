@@ -196,7 +196,7 @@ evals/
   runner.py        Drives scenarios, asserts on the audit log
   judge.py         LLM judge, for claims that are genuinely about wording
   scenarios/       24 YAML scenarios
-tests/             1122 tests, no network, no model
+tests/             1133 tests, no network, no model
   replay.py        Recorded-transcript backend, so tests need no API
 clinic.yaml        Clinic policy and configuration
 ```

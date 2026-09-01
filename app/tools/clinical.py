@@ -747,7 +747,16 @@ def summarize_diagnostic_considerations(
     # Pneumonia, because the vocabularies do not overlap. So candidates come from
     # symptom-to-symptom similarity, and each candidate's clinician-tier context
     # is then fetched by id — a lookup, not a second guess.
-    found = store.search(presentation, tiers=symptom_tiers, k=max(max_considerations, 1) + 2)
+    # A higher bar than routing uses, and read from the embedder because the two
+    # spaces separate at measurably different points. Found by an eval: the
+    # invented presentation "reticulated periorbital chromatosis with stellate
+    # induration" scored 0.37 against Psoriasis on the live embedder, cleared the
+    # 0.25 routing floor, and produced a three-condition summary — exactly the
+    # weak-match summary §4.15 says to replace with A.3.
+    floor = max(store.confident_score, DEFAULT_MIN_SCORE)
+    found = store.search(
+        presentation, tiers=symptom_tiers, k=max(max_considerations, 1) + 2, min_score=floor
+    )
 
     # Two floors, answering two different questions. The store's absolute floor
     # has already asked "is this a match at all"; this asks "is it a comparable
@@ -762,7 +771,12 @@ def summarize_diagnostic_considerations(
         # spec §4.15 — "Where retrieval returns no confident match, return the
         # no-match response of Appendix A.3. Do not produce a summary from a weak
         # match." §7.2: abstain rather than approximate.
-        record_call("no_match", chunks=[], considered=[h.chunk_id for h in found])
+        record_call(
+            "no_match",
+            chunks=[],
+            considered=[h.chunk_id for h in found],
+            min_score=floor,
+        )
         return {
             "presentation": presentation,
             "match": "none",

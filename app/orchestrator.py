@@ -540,6 +540,34 @@ class Orchestrator:
                 f"{session.patient_id}. Use exactly this id for any function "
                 f"that takes a patient_id; do not use any other."
             )
+        # The clinical session's own state, for exactly the reason the patient_id
+        # is here: the model was otherwise left to remember whether it had
+        # authenticated, from a transcript that may be twenty turns long. It
+        # cannot see the session object, so without this it re-asks a clinician
+        # for credentials it already checked — observed in the evals, where a
+        # session authenticated before the first turn produced no tool call at
+        # all because the assistant was still asking to be logged in.
+        #
+        # Reporting state, not granting it. The gate reads the session; this only
+        # tells the model what the session already says, so a fabricated line in
+        # a user turn claiming to be authenticated changes nothing.
+        if session.role is Role.CLINICAL_ASSISTANT:
+            if session.clinical_authentication_valid:
+                expires = session.expires_at.isoformat() if session.expires_at else "unknown"
+                block = (
+                    f"{block} This session is authenticated as "
+                    f"{session.asserted_role.value if session.asserted_role else 'clinical staff'}"
+                    f" (staff {session.staff_id}), valid until {expires}. Do not ask "
+                    f"for credentials again and do not call "
+                    f"authenticate_clinical_user; the clinical review functions "
+                    f"are available now."
+                )
+            else:
+                block = (
+                    f"{block} This session is NOT authenticated. Only "
+                    f"authenticate_clinical_user is available until it is."
+                )
+
         # The pre-screen's finding is reinforcement, not enforcement — the
         # refusal set is in the system prompt and the gate is in code. This just
         # means the model is not seeing the message cold.

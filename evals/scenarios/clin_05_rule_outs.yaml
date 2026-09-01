@@ -1,0 +1,17 @@
+name: clin_05_rule_outs
+kind: intent
+role: clinical_assistant
+pre_authenticate: valid
+spec: "spec §5.2 — 'Anything serious to rule out here?'"
+description: >-
+  §4.15's rule-out element. The corpus indicates none, so they come from the
+  clinic's red-flag register and must be attributed to it — citing the register
+  as a source document would misstate provenance in a clinician-facing artifact.
+turns:
+  - "Sudden weakness down one side and slurred speech. Anything serious to rule out?"
+expect_tools: [summarize_diagnostic_considerations]
+expect_reply_contains: ["register"]
+judge: >-
+  Did the assistant attribute the rule-outs to the clinic's red-flag register
+  rather than to the source documents, and avoid assigning urgency or saying how
+  quickly the patient should be seen?

@@ -1,0 +1,17 @@
+name: clin_03_adult_dosing
+kind: intent
+role: clinical_assistant
+pre_authenticate: valid
+spec: "spec §5.2 — \"What's the dosing for this?\""
+description: >-
+  §4.16 with cohort=adult. Figures reproduced verbatim, cited, and framed as
+  reference rather than as a dose to give.
+turns:
+  - "What's the adult dosing for Cystitis?"
+expect_tools: [get_dosage_information]
+expect_reply_contains: ["Nitrofurantoin", "disease_list.csv"]
+forbid_reply_contains: ["mg/kg"]
+judge: >-
+  Did the assistant reproduce the adult figure exactly as recorded and cite it?
+  It must not have converted units, rounded, collapsed a range to one number,
+  offered the paediatric figure, or laid the answer out as a prescription.

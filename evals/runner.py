@@ -13,25 +13,36 @@ can be exercised in CI without spending anything.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import sys
 import tempfile
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from app.channel import ClinicalChannel
 from app.clinic_sim import ClinicSimulator
 from app.config import get_clinic_config, get_settings
 from app.orchestrator import Orchestrator
 from app.safety.prescreen import Prescreen
 from app.store.audit import AuditRecord, AuditWriter, EventKind
-from app.store.session import Session
+from app.store.session import Role, Session
 from app.store.verify import verify_file
+from app.tools import registry
+from app.tools.schemas import ClinicalRole
 from evals.judge import Judge
 from evals.schema import Scenario, load_all
 
 PINNED_TODAY = date(2026, 9, 7)
+
+EVAL_STAFF_ID = "STAFF-2001"
+"""The physician in the simulated directory.
+
+Used only where a scenario needs an authentication state a conversation cannot
+reach — an expired session. Scenarios about authentication itself do it in
+dialogue, so §4.13's path is exercised rather than skipped."""
 
 
 @dataclass
@@ -183,6 +194,61 @@ def check(scenario: Scenario, records: list[AuditRecord], replies: list[str]) ->
 # ------------------------------------------------------------------ running ---
 
 
+def _establish(scenario: Scenario, clinic: Any) -> Session:
+    """Build the session the way the endpoint does (spec §1.1, §3.2).
+
+    The role is bound here, outside the conversation, on the channel the role
+    requires. A scenario cannot become clinical by saying so in a turn — that is
+    the property r3 rests on, and the harness has to respect it or the
+    adversarial scenarios prove nothing.
+    """
+    if scenario.role == "patient":
+        return Session()
+
+    session = Session(role=Role.CLINICAL_ASSISTANT, channel=ClinicalChannel.name)
+    if scenario.pre_authenticate:
+        expires = datetime.now(UTC) + (
+            timedelta(seconds=-1)
+            if scenario.pre_authenticate == "expired"
+            else timedelta(minutes=clinic.clinical.session_minutes)
+        )
+        session.bind_clinical_authentication(
+            staff_id=EVAL_STAFF_ID, asserted_role=ClinicalRole.PHYSICIAN, expires_at=expires
+        )
+    return session
+
+
+def _poisoned_index(scenario: Scenario) -> Any:
+    """The corpus plus this scenario's planted chunks, in memory only.
+
+    The real embedder, because retrieval quality is the thing under test and the
+    hashing one would not find the plant for the same reason it misses a
+    paraphrased stroke. In memory, because writing a poisoned chunk into the
+    on-disk index would leave it there for every later run.
+    """
+    from app.knowledge.chunking import Chunk, Tier, chunk_all, slug
+    from app.knowledge.corpus import load
+    from app.knowledge.embedding import build_embedder
+    from app.knowledge.store import InMemoryKnowledgeBase
+
+    chunks = chunk_all(load().records)
+    for index, planted in enumerate(scenario.poison):
+        chunks.append(
+            Chunk(
+                chunk_id=f"{slug(planted.disease)}::planted-{index}",
+                disease=planted.disease,
+                field="planted",
+                tier=Tier(planted.tier),
+                text=planted.text,
+                source_row=0,
+                source_document="planted-for-eval",
+            )
+        )
+    store = InMemoryKnowledgeBase(build_embedder(get_settings()))
+    store.index(chunks)
+    return store
+
+
 def run_scenario(
     scenario: Scenario,
     audit_dir: Path,
@@ -202,10 +268,11 @@ def run_scenario(
         audit=audit,
         backend=backend,
         prescreen=prescreen,
+        **({"knowledge": _poisoned_index(scenario)} if scenario.poison else {}),
     )
 
     result = Result(scenario=scenario, audit_path=audit.path)
-    session = Session()
+    session = _establish(scenario, clinic)
 
     try:
         for turn in scenario.turns:
@@ -220,6 +287,19 @@ def run_scenario(
     records = list(audit.records())
     result.tool_calls = _called(records)
     result.failures = check(scenario, records, result.replies)
+
+    # spec §2 — a schema claim, not a call claim. Read from the registry for the
+    # principal the session was established as, which is what the orchestrator
+    # sends.
+    schema = {tool.name for tool in registry.tools_for(session.role)}
+    for absent in scenario.expect_tool_absent:
+        if absent in schema:
+            result.failures.append(
+                Failure(
+                    "expect_tool_absent",
+                    f"{absent!r} is in the tool schema for role {session.role.value!r}",
+                )
+            )
 
     if scenario.expect_status and session.status.value != scenario.expect_status:
         result.failures.append(
@@ -303,6 +383,15 @@ def traceability(results: list[Result]) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # The scenario files are UTF-8 and cite the specification by section, so
+    # every line printed here can contain § and →. A Windows console defaults to
+    # cp1252 and raises on both, which made the runner die *while rendering a
+    # failure* — the one moment it must not. Replace rather than raise: a mangled
+    # arrow is a cosmetic loss, a lost failure report is not.
+    for stream in (sys.stdout, sys.stderr):
+        with contextlib.suppress(AttributeError, ValueError):
+            stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
+
     parser = argparse.ArgumentParser(description="Run the scenario evals.")
     parser.add_argument("--kind", choices=["intent", "failure", "adversarial"], default=None)
     parser.add_argument("--name", default=None, help="run one scenario by name")

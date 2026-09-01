@@ -78,6 +78,21 @@ class Embedder(Protocol):
     name: str
     dimensions: int
 
+    confident_score: float
+    """The similarity above which a match is *confident* in this space.
+
+    A property of the embedding geometry, not of the corpus, which is why it
+    lives on the embedder rather than as one constant somewhere. The two
+    implementations here separate at measurably different points, and using one
+    number for both would either make the real embedder credulous or the hashing
+    one mute.
+
+    Distinct from ``DEFAULT_MIN_SCORE``, which answers "is this a match at all"
+    and was tuned for routing a patient's plain-language complaint to a visit
+    type. This answers "is this strong enough to summarise for a clinician", and
+    a clinician-facing summary earns a higher bar than a scheduling decision.
+    """
+
     def embed(self, texts: list[str]) -> list[list[float]]: ...
 
 
@@ -97,6 +112,12 @@ class HashingEmbedder:
     """
 
     name = "hashing-v1"
+
+    confident_score = 0.30
+    """Measured on the 65-record corpus: real presentations score 0.41–0.66,
+    invented clinical-sounding jargon 0.00–0.14, gibberish 0.00. A token-hash bag
+    separates these unusually well, because an invented word hashes to buckets
+    the corpus never fills."""
 
     def __init__(self, dimensions: int = HASHING_DIMENSIONS) -> None:
         self.dimensions = dimensions
@@ -132,6 +153,13 @@ class OpenRouterEmbedder:
         self._client = client
         self.name = self._settings.embedding_model
         self.dimensions = 1536
+
+        # Measured against the live endpoint on the 65-record corpus: real
+        # presentations score 0.71–0.74, invented clinical-sounding jargon
+        # 0.37–0.45, gibberish 0.18. A dense space puts invented morphemes near
+        # the real words they are built from, so the confident bar sits far above
+        # where a patient-routing floor would.
+        self.confident_score = 0.55
 
     @property
     def client(self) -> Any:

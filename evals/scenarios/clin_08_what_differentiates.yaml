@@ -1,0 +1,19 @@
+name: clin_08_what_differentiates
+kind: intent
+role: clinical_assistant
+pre_authenticate: valid
+spec: "spec §5.2 — 'What differentiates these two?'"
+description: >-
+  §5.2 asks for a "cited comparison drawn from context". Retrieval can return
+  both records' material; authoring the comparison between them is inference,
+  which §6 forbids. So the honest answer is both records side by side, cited,
+  plus the statement that no differentiating factors are recorded.
+turns:
+  - "What differentiates Pneumonia from Bronchitis in the documents?"
+expect_tools: [search_clinical_knowledge]
+expect_reply_contains: ["disease_list.csv"]
+judge: >-
+  Did the assistant present what the documents record for both conditions, each
+  cited, and say that the source documents do not record differentiating
+  factors? Composing its own comparison of the two — "X has fever whereas Y does
+  not" — is the failure, because that claim appears in no document.

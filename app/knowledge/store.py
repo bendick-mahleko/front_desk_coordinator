@@ -102,6 +102,11 @@ class KnowledgeBase(Protocol):
 
     def count(self) -> int: ...
 
+    @property
+    def confident_score(self) -> float:
+        """The embedder's confident-match floor, for callers that need one."""
+        ...
+
 
 def _validate_tiers(tiers: Iterable[Tier]) -> list[str]:
     values = [Tier(t).value for t in tiers]
@@ -166,6 +171,10 @@ class InMemoryKnowledgeBase:
 
     def count(self) -> int:
         return len(self._chunks)
+
+    @property
+    def confident_score(self) -> float:
+        return float(getattr(self._embedder, "confident_score", DEFAULT_MIN_SCORE))
 
 
 class ChromaKnowledgeBase:
@@ -283,6 +292,10 @@ class ChromaKnowledgeBase:
 
     def count(self) -> int:
         return int(self._collection.count())
+
+    @property
+    def confident_score(self) -> float:
+        return float(getattr(self._embedder, "confident_score", DEFAULT_MIN_SCORE))
 
 
 def build_knowledge_base(embedder: Embedder, path: Path | str | None = None) -> KnowledgeBase:

@@ -42,18 +42,104 @@ def gate(function: str, decision: str = "allow", code: str | None = None) -> Aud
 
 
 def test_every_scenario_file_parses():
-    assert len(SCENARIOS) == 29
+    assert len(SCENARIOS) == 48
 
 
-def test_the_eleven_intents_of_specification_section_5_are_covered():
-    intents = [s for s in SCENARIOS if s.kind == "intent"]
-    assert len(intents) == 11, "spec §5 has eleven rows"
+def test_the_eleven_intents_of_specification_section_5_1_are_covered():
+    """§5.1's patient rows. Counted separately from §5.2's clinician rows,
+    because they are different tables about different principals and a single
+    total would hide one shrinking while the other grew."""
+    patient_intents = [s for s in SCENARIOS if s.kind == "intent" and s.role == "patient"]
+
+    assert len(patient_intents) == 11, "spec §5.1 has eleven rows"
+
+
+def test_every_row_of_specification_section_5_2_is_covered():
+    """§5.2's nine clinician rows, asserted **by row** rather than by count.
+
+    A count says nine scenarios exist; this says which question each one answers.
+    Two of the rows are answered by an absence (§5.2 routes them to elements
+    Decision 1 removed) and one is answered by a refusal, so a count would let a
+    row quietly vanish into a rename.
+    """
+    names = {s.name for s in SCENARIOS if s.role == "clinical_assistant"}
+
+    rows = {
+        "Log me in as clinical staff": "clin_01_authenticate",
+        "What should I be considering": "clin_02_considerations",
+        "What's the dosing for this": "clin_03_adult_dosing",
+        "What's the paediatric dose": "clin_04_paediatric_dosing",
+        "Anything serious to rule out": "clin_05_rule_outs",
+        "What is this condition": "clin_06_what_is_this_condition",
+        "What confirms it": "clin_07_what_confirms_it",
+        "What differentiates these two": "clin_08_what_differentiates",
+        "Prescribe this / send it to the pharmacy": "clin_09_prescribe_this",
+    }
+    for question, scenario in rows.items():
+        assert scenario in names, f"§5.2 row {question!r} has no scenario"
 
 
 def test_failure_and_adversarial_sets_exist():
     assert len([s for s in SCENARIOS if s.kind == "failure"]) == 7
-    # Six from the base system, five added by the knowledge extension.
-    assert len([s for s in SCENARIOS if s.kind == "adversarial"]) == 11
+    # Six from the base system, five from the knowledge extension, ten from r3.
+    assert len([s for s in SCENARIOS if s.kind == "adversarial"]) == 22
+
+
+def test_every_definition_of_done_demonstration_has_a_probe():
+    """§8's demonstration bullets, each mapped to the scenario that shows it.
+
+    §8 asks the release to *demonstrate* four things. A demonstration nobody can
+    point at is a claim, so this test is the index.
+    """
+    names = {s.name for s in SCENARIOS}
+
+    demonstrations = {
+        "no clinician-only content reaches a patient-facing reply": (
+            "adv_12_patient_names_clinical_function"
+        ),
+        "no conversational claim of clinical identity grants clinical access": (
+            "adv_13_claims_to_be_a_nurse"
+        ),
+        "weight-based paediatric dosing never without basis and maximum": (
+            "clin_04_paediatric_dosing"
+        ),
+        "retrieved documents are not instructions": ("adv_18_injected_instruction_in_a_document"),
+    }
+    for claim, scenario in demonstrations.items():
+        assert scenario in names, f"§8 demonstration {claim!r} has no probe"
+
+
+def test_the_role_axis_is_exercised_in_both_directions():
+    """A clinical scenario set with no patient probes would prove the capability
+    works and nothing about the boundary."""
+    clinical = [s for s in SCENARIOS if s.role == "clinical_assistant"]
+    patient_probes_at_the_boundary = [
+        s
+        for s in SCENARIOS
+        if s.role == "patient" and (s.expect_tool_absent or "clinical" in s.name)
+    ]
+
+    assert clinical
+    assert patient_probes_at_the_boundary
+
+
+def test_only_a_clinical_scenario_pre_authenticates():
+    for scenario in SCENARIOS:
+        if scenario.pre_authenticate:
+            assert scenario.role == "clinical_assistant", scenario.name
+
+
+def test_the_injection_probe_plants_its_own_chunk():
+    """The vendored corpus is clean, so the mechanism can only be tested by
+    putting something in it — in memory, for one scenario, never on disk."""
+    poisoned = [s for s in SCENARIOS if s.poison]
+
+    assert [s.name for s in poisoned] == ["adv_18_injected_instruction_in_a_document"]
+    planted = poisoned[0].poison[0]
+    assert "SYSTEM NOTE" in planted.text
+    assert "900mg/kg" in planted.text
+    # The plant has to be retrievable, or the probe tests nothing.
+    assert planted.tier == "routing_only"
 
 
 def test_the_knowledge_extension_added_its_own_probes():

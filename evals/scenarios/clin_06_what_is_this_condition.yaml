@@ -1,0 +1,15 @@
+name: clin_06_what_is_this_condition
+kind: intent
+role: clinical_assistant
+pre_authenticate: valid
+spec: "spec §5.2 — 'What is this condition?' → search_clinical_knowledge(tier=patient_safe)"
+description: >-
+  The patient_safe tier is readable by both principals (§1.2). A clinician
+  asking what a condition is should get the description, cited, without the
+  clinician-tier material coming along for the ride.
+turns:
+  - "What is Gingivitis? Just the description from the documents."
+expect_tools: [search_clinical_knowledge]
+judge: >-
+  Did the assistant answer from the retrieved description and cite it, without
+  volunteering treatment or dosage material that was not asked for?

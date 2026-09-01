@@ -109,6 +109,28 @@ and too close to the 0.14 false-positive ceiling to reach by lowering it. The
 classifier layer catches it, verified in the tests, but that means this case
 depends on a model call rather than on the deterministic layer.
 
+**"No confident match" needed a different floor, and an eval is what found it.**
+The routing floor (0.25) was tuned for sending a patient's plain-language
+complaint to a visit type. Applied to a clinician-facing summary it was credulous:
+the invented presentation *"reticulated periorbital chromatosis with stellate
+induration"* scored 0.37 against Psoriasis on the live embedder, cleared 0.25, and
+produced a confident-looking three-condition summary with citations — exactly the
+weak-match summary §4.15 says to replace with Appendix A.3.
+
+The confident-match floor is now a property of the *embedding space*, because the
+two spaces separate at measurably different points:
+
+| space | real presentations | invented jargon | gibberish | floor |
+|---|---|---|---|---|
+| hashing (test suite) | 0.41 – 0.66 | 0.00 – 0.14 | 0.00 | 0.30 |
+| `text-embedding-3-small` | 0.71 – 0.74 | 0.37 – 0.45 | 0.18 | 0.55 |
+
+Invented morphemes built out of real ones are the hard case. Gibberish is easy to
+reject and a real presentation is easy to accept; *"periorbital chromatosis"* is
+made of words the corpus knows, and a dense embedder puts it near them. A clinic
+indexing its own documents would need to re-measure both numbers — they are not
+properties of the code.
+
 **A clinician-facing summary on weak retrieval is the sharpest form of this
 problem.** "Swollen painful calf after a long flight" returns *Gingivitis* (0.37)
 as its sole diagnostic consideration on the hashing embedder the test suite uses.
@@ -190,7 +212,7 @@ Stated plainly so the list above is read in proportion.
   false positives.
 - **Emergencies pre-empt everything.** Screened before the agent loop runs, with
   a deterministic keyword layer that works when the classifier does not.
-- **1122 tests run with no network and no model.**
+- **1133 tests run with no network and no model.**
 - **Clinical content is unreachable from a patient turn.** The restriction is a
   metadata filter on the query, not a rule in a prompt, so there is no wording
   that widens it.
