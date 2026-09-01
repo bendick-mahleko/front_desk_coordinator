@@ -368,6 +368,15 @@ TOOL_POLICY: dict[str, Policy] = {
         roles=CLINICAL_ONLY,
         requires_clinical_auth=True,
     ),
+    "summarize_diagnostic_considerations": Policy(
+        GateLevel.OPEN,
+        rule="spec§4.15/diagnostic_consideration_summaries",
+        roles=CLINICAL_ONLY,
+        requires_clinical_auth=True,
+        # A clinician's description of a presentation is health information
+        # about whoever they are describing.
+        redact=("presentation",),
+    ),
     "suggest_appointment_type": Policy(
         GateLevel.VERIFIED,
         rule="spec§4.5/appointment_search",

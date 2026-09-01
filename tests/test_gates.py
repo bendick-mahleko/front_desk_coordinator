@@ -74,6 +74,7 @@ CONDITIONAL_FUNCTIONS = {"send_secure_text"}
 CLINICAL_FUNCTIONS = {
     "authenticate_clinical_user",
     "search_clinical_knowledge",
+    "summarize_diagnostic_considerations",
     "get_dosage_information",
 }
 """spec r3 §3.2, not §3.1.
@@ -223,6 +224,7 @@ VALID_ARGS: dict[str, dict] = {
         "k": 3,
     },
     "get_dosage_information": {"condition_name": "Cystitis", "cohort": "both"},
+    "summarize_diagnostic_considerations": {"presentation": "productive cough and fever"},
 }
 
 

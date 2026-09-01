@@ -22,6 +22,7 @@ from app.config import get_clinic_config
 from app.knowledge.chunking import TierNotPermitted, require_tiers, slug
 from app.knowledge.corpus import DEFAULT_SOURCE, canonical_name, records_by_name
 from app.knowledge.dosing import CohortDosing, cohorts_requested, split_cohorts
+from app.knowledge.red_flags import RED_FLAGS, severity_for
 from app.knowledge.store import DEFAULT_MIN_SCORE
 from app.policy.decorator import current_audit, current_session
 from app.store.session import Role
@@ -580,3 +581,277 @@ def get_dosage_information(
         )
     )
     return payload
+
+
+# ------------------------------ diagnostic consideration summaries (§4.15) ---
+#
+# Extractive. There is no model call in this function and no generated prose.
+#
+# Once Decision 1 removed A.1's two unsupported elements, every remaining element
+# is a corpus field, a computed coverage note, or a fixed string. So §7.2's
+# "uncited clinical content is a defect" holds *by construction* rather than by
+# validating a generator's output afterwards — there is nothing here that could
+# be uncited, because there is nothing here that was composed.
+#
+# The generative design (a second internal call with Appendix A.0's framing, then
+# a validator resolving every claim to a retrieved chunk_id, failing closed to
+# A.3) is recorded in docs/clinical-assistant-plan.md as the migration path for a
+# corpus that grows the missing columns. It is more code, more cost and strictly
+# more risk for no gain on this one.
+
+A1_ELEMENTS: tuple[str, ...] = (
+    "clinical features",
+    "key differentiating factors",
+    "confirmatory tests",
+)
+"""What Appendix A.1 asks of every consideration."""
+
+CORPUS_SUPPLIES: tuple[str, ...] = ("clinical features",)
+"""What this corpus can actually answer with — the ``symptoms`` field.
+
+The coverage note is the *difference* between these two tuples rather than a
+hardcoded sentence. A corpus that later grows a differentiators column starts
+rendering that bullet and shrinks the note with no code change; a corpus that
+silently loses a column starts disclosing it instead of emitting an empty bullet.
+"""
+
+NO_CONFIDENT_MATCH = (
+    "No consideration in the indexed source documents matches this presentation "
+    "with sufficient confidence. No summary is offered. The retrieval query and "
+    "the scores considered are recorded in the audit log."
+)
+"""Appendix A.3, verbatim."""
+
+CONSIDERATION_RELATIVE_FLOOR = 0.8
+"""Keep a candidate only if it scored at least this fraction of the best match.
+
+The absolute floor (``DEFAULT_MIN_SCORE``) answers "is this a match at all". It
+cannot answer "is this a *comparable* consideration", and on this corpus the two
+questions have different answers: measured on the hashing embedder, "productive
+cough, fever and rigors" returns Pneumonia at 0.408 and Bronchitis at 0.340 — a
+real differential — while "sudden weakness on one side of the face" returns
+Stroke at 0.488 and *Acne Vulgaris* at 0.309. Both second hits clear 0.25; only
+one of them belongs in a clinician's summary.
+
+No absolute threshold separates those, because the noise in one query outscores
+the signal in another. A relative floor can, and it is embedder-relative by
+construction, which is the point: it adapts to whatever geometry the live
+embedder has rather than encoding this one's.
+
+Measured at 0.8 on five presentations: it drops every noise candidate in four of
+them and keeps both legitimate differentials. It cannot help when the *top* hit
+is wrong — see ``docs/gaps.md`` on the swollen-calf case.
+"""
+
+RULE_OUT_SOURCE = "clinic red-flag register"
+"""Where rule-outs come from, and it is deliberately not "the source documents".
+
+§4.15 asks for *"serious conditions the source documents indicate should be ruled
+out"*. The corpus contains no such indication anywhere — no column, no
+convention. What exists is ``app/knowledge/red_flags.py``: 14 conditions curated
+by the clinic. Citing that as a source document would misstate provenance in a
+clinician-facing artifact, which is a worse failure than the gap it papers over.
+So rule-outs are attributed to the register by name, visibly distinct from the
+source citations beside them.
+"""
+
+
+def _coverage_note() -> str:
+    """What the source documents do not cover, stated once (Decision 1).
+
+    §4.15 requires the absence to be stated. Decision 1 removed the per-item
+    bullets — a field that is always empty is not a field, and boilerplate under
+    every consideration teaches a clinician to skim the one line that is real —
+    so it is said here, once, as a fact about the corpus.
+    """
+    missing = [element for element in A1_ELEMENTS if element not in CORPUS_SUPPLIES]
+    if not missing:
+        return "The source documents cover every element of this summary."
+    return (
+        "The source documents carry condition descriptions, causes, symptoms, "
+        "treatment and dosage. They do not carry "
+        + " or ".join(missing)
+        + ", so no consideration below reports either. This is a limit of the "
+        "indexed source set, not a finding about this presentation."
+    )
+
+
+@tool("summarize_diagnostic_considerations")
+def summarize_diagnostic_considerations(
+    presentation: str,
+    max_considerations: int = 5,
+    patient_id: str | None = None,
+) -> Any:
+    """Summarise what the indexed source documents say about a presentation.
+
+    Give the clinician's own description of the presentation, verbatim. The
+    result groups the source documents' symptom text by the records it resembles,
+    each cited, ordered by how strongly the retrieval supported it.
+
+    That ordering is not a ranking by likelihood, and you must not present it as
+    one. The corpus does not encode likelihood; the order says which records the
+    text resembled most, which is a different claim.
+
+    Everything you say must be traceable to a returned citation. This corpus does
+    not record differentiating factors or confirmatory tests, and the result says
+    so — pass that on rather than filling the gap from your own knowledge, which
+    §6 forbids and which a clinician cannot check.
+
+    Rule-outs come from the clinic's own red-flag register, not from the source
+    documents. Attribute them that way.
+
+    Do not say how quickly anyone should be seen, do not assign urgency, and do
+    not phrase any of this as a diagnosis, a recommendation or a plan. It is
+    reference material for a clinician who retains the judgement.
+
+    Where there is no confident match, say exactly that and stop.
+    """
+    session = current_session()
+    audit = current_audit()
+    store = knowledge_base()
+
+    def record_call(outcome: str, **detail: Any) -> None:
+        # spec §4.15 — staff identifier, presentation text, retrieved chunk
+        # identifiers, considerations returned, and whether the no-match path was
+        # taken.
+        audit.note(
+            "clinical_retrieval",
+            {
+                "tool": "summarize_diagnostic_considerations",
+                "staff_id": session.staff_id or "",
+                "presentation": presentation,
+                # §4.15 — "recorded for audit linkage only; it does not cause
+                # patient-record data to be retrieved or included". Nothing in
+                # this function reads the patient backend.
+                "patient_id": patient_id,
+                "outcome": outcome,
+                "no_match": outcome == "no_match",
+                **detail,
+            },
+        )
+
+    try:
+        symptom_tiers = require_tiers([Tier.ROUTING_ONLY], session.effective_role)
+        context_tiers = require_tiers([Tier.CLINICIAN_ONLY], session.effective_role)
+    except TierNotPermitted:
+        record_call("tier_refused")
+        return _refuse(
+            "tier_not_permitted",
+            "This session may not read clinical review material.",
+            "Tell the clinician this session cannot produce a review summary, and "
+            "do not describe what it would have contained.",
+        )
+
+    # Two steps, not one blended query. r2 measured why: matching a symptom
+    # description against *treatment* text retrieved "Common Cold" ahead of
+    # Pneumonia, because the vocabularies do not overlap. So candidates come from
+    # symptom-to-symptom similarity, and each candidate's clinician-tier context
+    # is then fetched by id — a lookup, not a second guess.
+    found = store.search(presentation, tiers=symptom_tiers, k=max(max_considerations, 1) + 2)
+
+    # Two floors, answering two different questions. The store's absolute floor
+    # has already asked "is this a match at all"; this asks "is it a comparable
+    # consideration", which no absolute number can answer on this corpus.
+    candidates = (
+        [hit for hit in found if hit.score >= found[0].score * CONSIDERATION_RELATIVE_FLOOR]
+        if found
+        else []
+    )
+
+    if not candidates:
+        # spec §4.15 — "Where retrieval returns no confident match, return the
+        # no-match response of Appendix A.3. Do not produce a summary from a weak
+        # match." §7.2: abstain rather than approximate.
+        record_call("no_match", chunks=[], considered=[h.chunk_id for h in found])
+        return {
+            "presentation": presentation,
+            "match": "none",
+            "summary": NO_CONFIDENT_MATCH,
+            "notice": STANDING_NOTICE,
+            "next_step": (
+                "Tell the clinician there is no confident match in the source "
+                "documents and stop. Do not offer a summary from a weak match, do "
+                "not lower the threshold, and do not answer from your own "
+                "knowledge."
+            ),
+        }
+
+    # Rule-outs are computed over *every* candidate, before truncation, so a
+    # condition the clinic marks serious cannot be dropped by max_considerations.
+    flagged = [hit for hit in candidates if severity_for(hit.disease) is not None]
+    considerations = candidates[:max_considerations]
+
+    context: list[dict[str, Any]] = []
+    rendered: list[dict[str, Any]] = []
+    for position, hit in enumerate(considerations, start=1):
+        context.append(
+            {
+                "chunk_id": hit.chunk_id,
+                "tier": hit.tier.value,
+                "citation": hit.citation,
+                "text": hit.text,
+            }
+        )
+        # Field-driven, not template-driven (Decision 1): one entry per element
+        # the record actually supplies. There is no differentiators key and no
+        # confirmatory-tests key, rather than keys holding a placeholder.
+        entry: dict[str, Any] = {
+            "position": position,
+            "consideration": hit.disease,
+            "citation": hit.citation,
+            "support": round(hit.score, 3),
+            "clinical features": hit.text,
+        }
+        management = store.get(f"{slug(hit.disease)}::management", tiers=context_tiers)
+        if management is not None:
+            context.append(
+                {
+                    "chunk_id": management.chunk_id,
+                    "tier": management.tier.value,
+                    "citation": management.citation,
+                    "text": management.text,
+                }
+            )
+            entry["recorded management"] = management.text
+            entry["management citation"] = management.citation
+        rendered.append(entry)
+
+    record_call(
+        "ok",
+        chunks=[c["chunk_id"] for c in context],
+        considerations=[e["consideration"] for e in rendered],
+        rule_outs=[hit.disease for hit in flagged],
+    )
+
+    return {
+        "presentation": presentation,
+        "match": "found",
+        "context": context,
+        "summary": rendered,
+        "ordering": (
+            "By strength of support in the retrieved context. This is not a "
+            "ranking by clinical likelihood, which the source documents do not "
+            "encode."
+        ),
+        "rule_outs": {
+            "source": RULE_OUT_SOURCE,
+            "conditions": [hit.disease for hit in flagged],
+            "note": (
+                "Drawn from the clinic's red-flag register, not from the source "
+                "documents, which carry no rule-out guidance. The register covers "
+                f"{len(RED_FLAGS)} conditions and this list is limited to those "
+                "the retrieval surfaced, so it is not a complete differential. No "
+                "urgency is assigned: that is a clinical judgement."
+            ),
+        },
+        "coverage_note": _coverage_note(),
+        "notice": STANDING_NOTICE,
+        "next_step": (
+            "Present this as a summary of source documents for review, not as a "
+            "diagnosis, a recommendation or a plan. Cite each point to the "
+            "citation beside it. Say that the ordering reflects strength of "
+            "support in the documents rather than likelihood. Pass on the coverage "
+            "note rather than filling the gap. Attribute the rule-outs to the "
+            "clinic's register. Do not say how soon the patient should be seen."
+        ),
+    }

@@ -527,7 +527,7 @@ routine formulary notice and *not* the incomplete-source one.
 `Cohort` joined `Tier` in `app/tools/schemas.py` for the same reason — §4.16
 makes it a tool argument.
 
-### C5 — `summarize_diagnostic_considerations` (1 day, ~40 tests)
+### C5 — `summarize_diagnostic_considerations` — **DONE** (38 tests)
 
 **Recommendation: build this extractively, with no model call.**
 
@@ -583,11 +583,55 @@ Two §4.15 prohibitions to hold explicitly: no triage, no urgency, no
 clinical judgement); and ordering is *by strength of retrieval support*, stated
 as such, never as clinical likelihood.
 
-Exit: A.3 is returned for a below-threshold presentation; every rendered line
-carries a citation resolving to a retrieved chunk or to the red-flag register;
-no response contains a differentiator or confirmatory-test bullet, and every
-response carries the coverage note that says why; a poisoned chunk (see C8)
-changes nothing about the output structure.
+Exit (all met): A.3 for a below-threshold presentation; every rendered line
+cites a retrieved chunk; no response contains a differentiator or
+confirmatory-test key, and every response carries the computed coverage note.
+Built extractively — a test makes any model client raise, so "no generated prose"
+is asserted rather than intended.
+
+**A second floor was needed, and measuring is what showed it.** The store's
+absolute floor answers "is this a match at all"; it cannot answer "is this a
+*comparable* consideration", and on this corpus the two questions have different
+answers. Measured on the hashing embedder: "productive cough, fever and rigors"
+returns Pneumonia 0.408 and Bronchitis 0.340 — a real differential — while
+"sudden weakness on one side of the face" returns Stroke 0.488 and **Acne
+Vulgaris 0.309**. Both second hits clear 0.25. No absolute number separates them,
+because the noise in one query outscores the signal in another.
+
+So there is a **relative** floor: keep a candidate only if it scored ≥0.8 of the
+best match. It is embedder-relative by construction, which is the point — it
+adapts to whatever geometry the live embedder has rather than encoding this one's.
+Measured at 0.8 it drops every noise candidate in four of five presentations and
+keeps both legitimate differentials.
+
+It cannot help when the *top* hit is wrong. "Swollen painful calf after a long
+flight" returns **Gingivitis (0.37)** as the sole consideration on the hashing
+embedder. The real embedder gets it right — DVT at 0.42, rank 1 — so this is the
+`docs/gaps.md` §2b embedder gap rather than a design fault, but it is the sharpest
+illustration yet of §6's warning that a clinician-facing summary on weak retrieval
+is worse than a patient-facing routing decision on one.
+
+**Two mutants were caught and one survived, which found a vacuous test.** The
+truncation test used the pneumonia presentation with `max_considerations=1` —
+where Pneumonia is the *top* hit and survives the cut either way, so a mutant
+computing rule-outs *after* truncation passed it. Rewritten against a
+presentation where two register conditions are retrieved and the second is the
+one truncation drops (Appendicitis 0.65, Cholecystitis 0.60, both on the
+register). It now fails the mutant.
+
+**§4.15's urgency prohibition binds the assistant's voice, not the documents'.**
+The first version of that test scanned the whole payload and failed on the word
+"emergency" — which is in Stroke's own management text, along with "within 4.5
+hours of onset". Returning that verbatim is what §4.16 requires; scrubbing it
+would strip the most clinically consequential fact in the record. The test is
+scoped to the fields the function authors, and a companion test asserts the
+source text is *not* filtered, so a later reader cannot "fix" the first by
+censoring the second.
+
+The register's `Severity` labels are deliberately not passed through. They were
+authored for *patient-facing routing* — emergency means tell them to call 911 —
+and repurposing a patient-routing label as clinician-facing urgency is the same
+provenance slip the rule-out attribution exists to avoid. Membership only.
 
 ### C6 — Audit, and the cross-role assertion (½ day, ~30 tests)
 

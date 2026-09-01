@@ -449,6 +449,20 @@ class GetDosageInformationArgs(StrictArgs):
         return self
 
 
+class SummarizeDiagnosticConsiderationsArgs(StrictArgs):
+    """spec §4.15.
+
+    ``patient_id`` is *"recorded for audit linkage only; it does not cause
+    patient-record data to be retrieved or included"*. It still passes the
+    provenance check like any other identifier — §6 forbids inventing one — so a
+    clinician wanting the linkage has to have looked the patient up.
+    """
+
+    presentation: str = Field(min_length=3, max_length=4000)
+    max_considerations: int = Field(default=5, ge=1, le=10)
+    patient_id: str | None = None
+
+
 # ------------------------------------------------------------------ registry ---
 
 ARGUMENT_MODELS: dict[str, type[StrictArgs]] = {
@@ -471,6 +485,7 @@ ARGUMENT_MODELS: dict[str, type[StrictArgs]] = {
     "authenticate_clinical_user": AuthenticateClinicalUserArgs,
     "search_clinical_knowledge": SearchClinicalKnowledgeArgs,
     "get_dosage_information": GetDosageInformationArgs,
+    "summarize_diagnostic_considerations": SummarizeDiagnosticConsiderationsArgs,
 }
 """The functions the assistant may call.
 

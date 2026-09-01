@@ -63,11 +63,16 @@ def test_every_policy_declares_its_principals():
 
 
 def test_the_clinical_group_is_exactly_what_section_2_lists():
-    """§2 names four. Three exist so far; C5 adds the last, and this fails when
-    one lands without its policy entry being decided."""
+    """§2 names four, and all four now exist.
+
+    Pinned as the exact set rather than a subset, so a fifth clinical function
+    cannot appear without somebody deciding its policy entry — and so one
+    quietly leaving the group fails here too.
+    """
     assert {
         "authenticate_clinical_user",
         "search_clinical_knowledge",
+        "summarize_diagnostic_considerations",
         "get_dosage_information",
     } == CLINICAL_FUNCTIONS
 

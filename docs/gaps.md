@@ -109,6 +109,14 @@ and too close to the 0.14 false-positive ceiling to reach by lowering it. The
 classifier layer catches it, verified in the tests, but that means this case
 depends on a model call rather than on the deterministic layer.
 
+**A clinician-facing summary on weak retrieval is the sharpest form of this
+problem.** "Swollen painful calf after a long flight" returns *Gingivitis* (0.37)
+as its sole diagnostic consideration on the hashing embedder the test suite uses.
+The real embedder ranks Deep Vein Thrombosis first (0.42), so this is the
+embedder gap above rather than a design fault — but it is why C5 shows the support
+score on every consideration, states that the ordering is not a likelihood
+ranking, and abstains with Appendix A.3 rather than presenting a weak match.
+
 **Red-flag coverage is a curated list of 14 conditions.** Anything outside the
 65-record corpus is invisible to the layer entirely.
 
@@ -174,7 +182,7 @@ Stated plainly so the list above is read in proportion.
   false positives.
 - **Emergencies pre-empt everything.** Screened before the agent loop runs, with
   a deterministic keyword layer that works when the classifier does not.
-- **1030 tests run with no network and no model.**
+- **1073 tests run with no network and no model.**
 - **Clinical content is unreachable from a patient turn.** The restriction is a
   metadata filter on the query, not a rule in a prompt, so there is no wording
   that widens it.

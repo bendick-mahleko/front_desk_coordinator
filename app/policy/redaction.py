@@ -41,6 +41,7 @@ SENSITIVE_FIELDS: dict[str, str] = {
     # so it is recorded there deliberately by the retrieval writer rather than
     # arriving here by accident through the gate's argument view.
     "query": "<query>",
+    "presentation": "<presentation>",
     "identifier_1_value": "<identifier>",
     "identifier_2_value": "<identifier>",
     "phone_number": "<phone>",
