@@ -1,0 +1,91 @@
+{
+  "_comment": [
+    "Simulated clinic directory (spec §3.2). No real person and no real",
+    "credential is represented here. The tokens are fixture strings that exist",
+    "so the authentication path can be exercised offline; a real deployment",
+    "replaces SimulatedIdentityProvider with an adapter to the clinic's own",
+    "identity provider and no token ever reaches this process.",
+    "",
+    "Every row exists to make one branch of §3.2 reachable. The five licensed",
+    "roles of §4.13 are the happy paths; the last three are the refusals, and",
+    "each is refused for exactly one reason so a test cannot pass by accident."
+  ],
+  "staff": [
+    {
+      "staff_id": "STAFF-2001",
+      "credential_token": "fixture-token-alvarez",
+      "display_name": "Dr. Alvarez",
+      "role": "physician",
+      "department": "family_medicine",
+      "shared_account": false,
+      "credential_expired": false
+    },
+    {
+      "staff_id": "STAFF-2002",
+      "credential_token": "fixture-token-okafor",
+      "display_name": "NP Okafor",
+      "role": "nurse_practitioner",
+      "department": "family_medicine",
+      "shared_account": false,
+      "credential_expired": false
+    },
+    {
+      "staff_id": "STAFF-2003",
+      "credential_token": "fixture-token-reyes",
+      "display_name": "PA Reyes",
+      "role": "physician_assistant",
+      "department": "urgent_care",
+      "shared_account": false,
+      "credential_expired": false
+    },
+    {
+      "staff_id": "STAFF-2004",
+      "credential_token": "fixture-token-iqbal",
+      "display_name": "RN Iqbal",
+      "role": "registered_nurse",
+      "department": "triage",
+      "shared_account": false,
+      "credential_expired": false
+    },
+    {
+      "staff_id": "STAFF-2005",
+      "credential_token": "fixture-token-novak",
+      "display_name": "PharmD Novak",
+      "role": "clinical_pharmacist",
+      "department": "pharmacy",
+      "shared_account": false,
+      "credential_expired": false
+    },
+
+    {
+      "_why": "spec §3.2 — a shared clinical account. Holds a licensed role and a valid credential, so sharedness is the only thing wrong with it. Refused because every clinical-review call must be auditable to a named individual.",
+      "staff_id": "STAFF-2900",
+      "credential_token": "fixture-token-triage-desk",
+      "display_name": "Triage Desk (shared)",
+      "role": "registered_nurse",
+      "department": "triage",
+      "shared_account": true,
+      "credential_expired": false
+    },
+    {
+      "_why": "spec §3.2 item 3 — in the directory, but not in a clinical role. Authenticates; is not a clinician. Refused with role: null rather than by naming a non-clinical job title, because the ClinicalRole enum has no member for one.",
+      "staff_id": "STAFF-3001",
+      "credential_token": "fixture-token-blake",
+      "display_name": "Blake (front desk)",
+      "role": null,
+      "department": "reception",
+      "shared_account": false,
+      "credential_expired": false
+    },
+    {
+      "_why": "spec §4.13 — a genuine credential past its validity. Drops to the system role, never to patient.",
+      "staff_id": "STAFF-2006",
+      "credential_token": "fixture-token-chen",
+      "display_name": "Dr. Chen",
+      "role": "physician",
+      "department": "family_medicine",
+      "shared_account": false,
+      "credential_expired": true
+    }
+  ]
+}

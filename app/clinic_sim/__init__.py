@@ -17,6 +17,7 @@ from datetime import date
 from app.clinic_sim.ehr import SimulatedPatientRepo
 from app.clinic_sim.eligibility import SimulatedEligibilityGateway
 from app.clinic_sim.faults import FaultInjector
+from app.clinic_sim.identity import SimulatedIdentityProvider
 from app.clinic_sim.scheduler import SimulatedScheduleRepo
 from app.clinic_sim.sms_outbox import SimulatedMessageGateway
 from app.clinic_sim.staff_queue import SimulatedStaffQueue
@@ -25,7 +26,7 @@ from app.config import ClinicConfig, get_clinic_config
 
 @dataclass
 class ClinicSimulator:
-    """The five ports, wired and seeded."""
+    """The six ports, wired and seeded."""
 
     faults: FaultInjector
     patients: SimulatedPatientRepo
@@ -33,6 +34,7 @@ class ClinicSimulator:
     eligibility: SimulatedEligibilityGateway
     messages: SimulatedMessageGateway
     staff: SimulatedStaffQueue
+    identity: SimulatedIdentityProvider
     clinic: ClinicConfig
 
     @classmethod
@@ -52,6 +54,7 @@ class ClinicSimulator:
             eligibility=SimulatedEligibilityGateway(faults, patients),
             messages=SimulatedMessageGateway(faults),
             staff=SimulatedStaffQueue(),
+            identity=SimulatedIdentityProvider(faults),
             clinic=clinic,
         )
 
@@ -64,6 +67,7 @@ __all__ = [
     "FaultInjector",
     "SimulatedEligibilityGateway",
     "SimulatedMessageGateway",
+    "SimulatedIdentityProvider",
     "SimulatedPatientRepo",
     "SimulatedScheduleRepo",
     "SimulatedStaffQueue",

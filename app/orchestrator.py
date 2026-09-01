@@ -185,6 +185,10 @@ class TurnRecorder:
             self._record("verification", detail, patient_id=detail.get("patient_id"))
         elif kind == "escalation":
             self._record("escalation", detail, ticket_id=detail.get("ticket_id", ""))
+        elif kind == "clinical_auth":
+            # spec §4.13 requires this in the audit log, so it is a record and
+            # not only a trace event.
+            self._record("clinical_auth", detail, outcome=str(detail.get("outcome", "unknown")))
 
     @property
     def should_break(self) -> bool:

@@ -410,7 +410,12 @@ def test_the_first_party_request_is_shaped_correctly():
     assert kwargs["output_config"]["effort"] == "medium"
     assert kwargs["betas"] == ["server-side-fallback-2026-07-01"]
     assert kwargs["fallbacks"] == "default"
-    assert len(kwargs["tools"]) == len(ARGUMENT_MODELS)
+    # The patient schema, not every registered function: spec §2 keeps the
+    # clinical-review group out of a patient session's tools entirely.
+    from app.tools.registry import CLINICAL_TOOLS
+
+    sent = {t.name for t in kwargs["tools"]}
+    assert sent == set(ARGUMENT_MODELS) - CLINICAL_TOOLS
     assert kwargs["system"][0]["text"] == "s"
 
 

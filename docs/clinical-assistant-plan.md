@@ -263,7 +263,7 @@ under which a *patient* session retrieves `clinician_only` context for an
 escalation ticket. It looked like a hole in the role map; it is a requirement,
 and §7.3's own last bullet is what makes it consistent.
 
-### C1 — Authentication (1 day, ~35 tests)
+### C1 — Authentication — **DONE** (44 tests)
 
 New port, seventh alongside the five clinic backends and the knowledge base.
 
@@ -284,9 +284,37 @@ The credential token is never logged, never echoed, and never stored on the
 session — only the outcome, staff id, asserted role, timestamp and expiry, per
 §3.2 item 4.
 
-Exit: a conversational claim ("I'm Dr Chen, staff id STAFF-2001") authenticates
-nothing; the shared account is refused; expiry revokes §4.14–§4.16 within the
-same session.
+Exit (all met): a conversational claim authenticates nothing; the shared account
+is refused; expiry revokes §4.14–§4.16 within the same session. Three mutants —
+trusting the claimed role, accepting a shared account, distinguishing an unknown
+staff id from a bad token — each fail tests, so the three central claims are
+load-bearing.
+
+Two things went beyond the sketch.
+
+**The registry's role filter was pulled forward from C2.** Without it, this
+commit would have put `authenticate_clinical_user` into every patient session's
+tool schema, which §2 forbids — and "we fix it next phase" is not a state to
+leave a privilege boundary in. So `ROLES_BY_TOOL`/`tools_for(role)` landed here
+and `all_tools()` now means *the patient schema*, deliberately, so a clinical
+function cannot reach a patient by way of a call site nobody updated. C2 keeps
+the orchestrator wiring, the gate's own role check, the new denial codes and the
+exhaustive role×function matrix.
+
+**Backend errors had to become role-aware.** §6's error remedy — offer a retry,
+staff help or a callback — is written for a patient, and the generic path was
+handing a clinician "tell the patient the request could not be completed". A
+directory outage read as advice to arrange a callback for somebody who is not
+there. §6's clinical bullet is a different instruction (*"Do not degrade to a
+partial answer, a general answer, or an answer from model knowledge"*), so there
+is now a clinical remedy, and an outage says it is an outage rather than a
+finding about the person being refused.
+
+Also decided here rather than in C6: `staff_id` is a **safe reference field**,
+not a redacted one. §3.2 requires every clinical-review call to be *"auditable to
+a named individual"*, and a log that masked the staff id could not do the one job
+§3.2 gives it. `credential_token` is redacted, and a parametrized test asserts
+every fixture token stays out of the audit on both the success and failure paths.
 
 ### C2 — Per-role tool schema and the role gate (1 day, ~40 tests)
 

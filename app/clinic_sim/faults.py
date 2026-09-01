@@ -31,6 +31,11 @@ SUPPORTED_FAULTS: dict[str, frozenset[str]] = {
     # Escalation must always succeed (spec §4.12), so no fault may be armed on
     # it. The empty set is the enforcement, not a comment.
     "StaffQueue": frozenset(),
+    # spec §4.13 — "On expiry or failure, drop to the system role." An outage is
+    # a failure, and it must be reachable in a test, or the branch that
+    # distinguishes "the directory is down" from "you are not a clinician" is
+    # never exercised.
+    "IdentityProvider": frozenset({"directory_unavailable"}),
 }
 
 ERROR_FAULTS: frozenset[str] = frozenset(
@@ -43,6 +48,7 @@ ERROR_FAULTS: frozenset[str] = frozenset(
         "rejected",
         "invalid_number",
         "send_failed",
+        "directory_unavailable",
     }
 )
 """Faults that raise. Everything else in SUPPORTED_FAULTS shapes a valid result."""
@@ -56,6 +62,7 @@ FAULT_MESSAGES: dict[str, str] = {
     "rejected": "the payer rejected the eligibility request",
     "invalid_number": "the destination number was rejected by the gateway",
     "send_failed": "the message gateway refused the send",
+    "directory_unavailable": "the clinic's identity provider did not respond",
 }
 
 

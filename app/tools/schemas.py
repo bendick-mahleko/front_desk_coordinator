@@ -360,6 +360,28 @@ class EscalateToStaffArgs(StrictArgs):
     patient_id: str | None = None
 
 
+# ------------------------------------------------------ clinical review ---
+
+
+class AuthenticateClinicalUserArgs(StrictArgs):
+    """spec §4.13.
+
+    ``asserted_role`` is a *claim*, not an input to the decision. §3.2 item 3
+    admits the role only from the identity provider's response, so the tool
+    compares this against the assertion and refuses a mismatch. It is collected
+    at all because a caller stating their own role and the directory disagreeing
+    is a signal worth auditing, not because it is ever believed.
+
+    ``credential_token`` is a token, never a password (§3.2 item 2). It is
+    redacted on the way into the audit log by ``SENSITIVE_FIELDS``.
+    """
+
+    staff_id: str = Field(min_length=3, max_length=64)
+    credential_token: str = Field(min_length=8, max_length=512)
+    asserted_role: ClinicalRole
+    department: str | None = Field(default=None, max_length=64)
+
+
 # ------------------------------------------------------------------ registry ---
 
 ARGUMENT_MODELS: dict[str, type[StrictArgs]] = {
@@ -379,6 +401,7 @@ ARGUMENT_MODELS: dict[str, type[StrictArgs]] = {
     "get_clinic_directions": GetClinicDirectionsArgs,
     "escalate_to_staff": EscalateToStaffArgs,
     "suggest_appointment_type": SuggestAppointmentTypeArgs,
+    "authenticate_clinical_user": AuthenticateClinicalUserArgs,
 }
 """The functions the assistant may call.
 

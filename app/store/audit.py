@@ -40,6 +40,7 @@ class EventKind:
     TOOL_RESULT = "tool_result"
     VERIFICATION = "verification"
     ESCALATION = "escalation"
+    CLINICAL_AUTH = "clinical_auth"
     REFUSAL = "refusal"
     MODEL_ERROR = "model_error"
     TURN_COMPLETED = "turn_completed"
@@ -262,6 +263,30 @@ class AuditWriter:
             outcome=str(detail.get("priority", "routine")),
             detail=detail,
             refs={"ticket_id": ticket_id},
+        )
+
+    def clinical_auth(
+        self, session_id: str, turn: int, detail: dict[str, Any], outcome: str
+    ) -> AuditRecord:
+        """spec §4.13 — *"Record authentication outcome, staff identifier,
+        asserted role, timestamp, and channel in the audit log."*
+
+        The timestamp is the record's own ``ts``. The staff identifier goes in
+        ``refs`` rather than ``detail`` so it survives redaction: it is a
+        clinic-issued reference to an employee, which §3.2's last bullet requires
+        for every clinical call to be *"auditable to a named individual"* — an
+        audit log that redacted it could not do the one job §3.2 gives it.
+
+        No credential material reaches here. ``detail`` is built by the caller
+        from the assertion, which has no field that could carry a token.
+        """
+        return self.append(
+            session_id=session_id,
+            turn=turn,
+            event=EventKind.CLINICAL_AUTH,
+            outcome=outcome,
+            detail=detail,
+            refs={"staff_id": detail.get("staff_id", "")} if detail.get("staff_id") else {},
         )
 
     def refusal(self, session_id: str, turn: int, category: str) -> AuditRecord:

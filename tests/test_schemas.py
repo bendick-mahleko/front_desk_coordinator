@@ -36,16 +36,39 @@ SPEC_FUNCTIONS = frozenset(
 )
 EXTENSION_FUNCTIONS = frozenset({"suggest_appointment_type"})
 
+CLINICAL_FUNCTIONS = frozenset({"authenticate_clinical_user"})
+"""spec r3 §2 — the clinical-review group. Grows to four across C3–C5.
+
+Listed separately from the patient functions rather than merged into one set,
+because §2 makes them a different *kind* of entry: they are registered only in a
+clinical session, and a patient session is told they do not exist.
+"""
+
 
 def test_every_specification_function_has_an_argument_model():
     """spec §2 lists fifteen. All fifteen must still be there."""
     assert set(S.ARGUMENT_MODELS) >= SPEC_FUNCTIONS
 
 
-def test_the_extension_adds_exactly_one_function():
+def test_the_function_inventory_is_exactly_what_is_declared():
     """Naming the delta rather than bumping a count: a function appearing
     without a test change is what this is meant to catch."""
-    assert set(S.ARGUMENT_MODELS) == SPEC_FUNCTIONS | EXTENSION_FUNCTIONS
+    assert set(S.ARGUMENT_MODELS) == SPEC_FUNCTIONS | EXTENSION_FUNCTIONS | CLINICAL_FUNCTIONS
+
+
+def test_a_clinical_function_is_absent_from_a_patient_tool_schema():
+    """spec §2 — *"absent from the tool schema presented to a patient
+    session"*. Absent, not refused: this is the claim that makes §2's "answered
+    as an unknown capability" true."""
+    from app.store.session import Role
+    from app.tools import registry
+
+    patient_schema = {d["name"] for d in registry.tool_definitions(Role.PATIENT)}
+
+    assert patient_schema & CLINICAL_FUNCTIONS == set()
+    assert {
+        d["name"] for d in registry.tool_definitions(Role.CLINICAL_ASSISTANT)
+    } >= CLINICAL_FUNCTIONS
 
 
 @pytest.mark.parametrize("name,model", sorted(S.ARGUMENT_MODELS.items()))

@@ -1,9 +1,13 @@
 """Backend ports — the boundary between the assistant and the clinic estate.
 
-Five protocols and the result types they return. The prototype implements all
+Six protocols and the result types they return. The prototype implements all
 of them with fakes (``app.clinic_sim``), but they are written as if a real EHR,
 scheduler, clearinghouse and SMS gateway sat behind them, so an adapter can be
 substituted without touching the policy or tool layers (AD-07).
+
+``IdentityProvider`` is the sixth, added by specification revision 3. It sits
+behind the same boundary for the same reason: an OIDC or SAML adapter should be a
+new implementation of one protocol, not a change to the gate.
 
 Ports raise ``BackendError``. Normalising those into tool results the model can
 read is the tool layer's job in Phase 3 — a backend failure must never surface
@@ -20,6 +24,7 @@ from pydantic import BaseModel, ConfigDict
 
 from app.tools.schemas import (
     AppointmentType,
+    ClinicalRole,
     EscalationReason,
     IdentifierType,
     MessageType,
@@ -301,3 +306,65 @@ class StaffQueue(Protocol):
     ) -> EscalationTicket: ...
 
     def tickets(self) -> list[EscalationTicket]: ...
+
+
+# ------------------------------------------------------ identity provider ---
+
+
+class StaffAssertion(BaseModel):
+    """What the clinic's directory says about one staff member (spec §3.2).
+
+    The **only** admissible source of a session's clinical role. §3.2 item 3: the
+    role must come from the identity provider's response, and *"a role asserted
+    in conversation text is not a role assertion and must be rejected"*. So the
+    tool compares what the caller claimed against this and refuses a mismatch —
+    this object wins, always.
+
+    Carries the directory's facts, not a decision. Whether a shared account or a
+    non-clinical role is acceptable is clinic policy, decided in the tool layer,
+    because the answers differ per clinic and the directory has no opinion.
+
+    No credential material. The token is checked and discarded; there is no field
+    here that could carry it into a log.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    staff_id: str
+    display_name: str
+
+    role: ClinicalRole | None
+    """The licensed clinical role the directory holds, or None when it holds this
+    person in a non-clinical one. A receptionist authenticates perfectly well and
+    is still not a clinician (spec §3.2 item 3)."""
+
+    shared_account: bool = False
+    """spec §3.2 — *"Anonymous or shared clinical accounts must be rejected at
+    authentication."* A directory fact, so the directory reports it."""
+
+    credential_expired: bool = False
+    """The presented token is genuine but past its validity. Distinct from an
+    unknown staff id or a wrong token, which return None — those two are
+    deliberately indistinguishable so authentication cannot be used to enumerate
+    who works here."""
+
+    department: str | None = None
+
+
+@runtime_checkable
+class IdentityProvider(Protocol):
+    """The clinic's identity provider (spec §3.2).
+
+    One method, and it takes a token rather than a password: §3.2 item 2 —
+    *"The assistant never collects, stores, or transmits a staff password."*
+
+    Returns None for an unknown staff id **or** a bad token, without saying
+    which. A caller who could tell the difference could enumerate the clinic's
+    staff directory one guess at a time.
+    """
+
+    def authenticate(self, staff_id: str, credential_token: str) -> StaffAssertion | None: ...
+
+    def directory_size(self) -> int:
+        """How many records the directory holds. For health checks only."""
+        ...

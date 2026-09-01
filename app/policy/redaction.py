@@ -32,6 +32,10 @@ SENSITIVE_FIELDS: dict[str, str] = {
     "patient_first_name": "<name>",
     "patient_last_name": "<name>",
     "date_of_birth": "<dob>",
+    # spec §3.2 item 2 — the assistant never stores or transmits staff
+    # credentials. A settings panel that showed one, or a log that kept one,
+    # would be the same failure as a patient identifier in the log.
+    "credential_token": "<credential>",
     "identifier_1_value": "<identifier>",
     "identifier_2_value": "<identifier>",
     "phone_number": "<phone>",
@@ -68,6 +72,11 @@ SAFE_REFERENCE_FIELDS = frozenset(
         "message_id",
         "ticket_id",
         "session_id",
+        # A clinic-issued reference to an employee, not a fact about a patient.
+        # spec §3.2 requires every clinical-review call to be "auditable to a
+        # named individual", so this one must *survive* redaction — a log that
+        # masked it could not do the job §3.2 gives it.
+        "staff_id",
     }
 )
 

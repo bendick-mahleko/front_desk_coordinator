@@ -33,6 +33,9 @@ DESIGN_SECTION_13 = {
     "EligibilityGateway": {"payer_unavailable", "ambiguous_response", "rejected"},
     "MessageGateway": {"delivery_unconfirmed", "invalid_number", "send_failed"},
     "StaffQueue": set(),
+    # spec r3 §4.13 — an identity-provider outage is an authentication failure,
+    # and §4.13 requires it to drop to the system role rather than degrade.
+    "IdentityProvider": {"directory_unavailable"},
 }
 
 
@@ -213,6 +216,7 @@ def test_every_declared_fault_code_is_exercised_somewhere():
         "delivery_unconfirmed",
         "invalid_number",
         "send_failed",
+        "directory_unavailable",
     }
     assert all_fault_codes() == exercised
     assert all_fault_codes() >= ERROR_FAULTS

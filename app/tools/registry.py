@@ -35,6 +35,7 @@ from pydantic import BaseModel
 from app.clinic_sim import ClinicSimulator
 from app.policy.decorator import current_session, gated
 from app.ports import BackendError
+from app.store.session import Role
 from app.tools.idempotency import idempotency_key, needs_key
 from app.tools.schemas import ARGUMENT_MODELS
 
@@ -50,6 +51,7 @@ DOMAIN_MODULES = (
     "app.tools.clinic",
     "app.tools.escalation",
     "app.tools.knowledge",
+    "app.tools.clinical",
 )
 
 # What the model is told when a backend fails. Specification §6 requires the
@@ -95,6 +97,32 @@ GENERIC_BACKEND_REMEDY = (
     "Tell the patient the request could not be completed, and offer to try again, "
     "have staff help, or arrange a callback."
 )
+
+CLINICAL_BACKEND_REMEDY = (
+    "Tell the clinician plainly that the request could not be completed and why, "
+    "and offer the clinic's service desk. Do not answer from your own knowledge, "
+    "do not offer a partial or general answer, and do not retry with different "
+    "arguments."
+)
+"""§6's error rule, for the other principal.
+
+The patient remedy offers a retry, staff help or a callback, which is right for
+someone trying to book an appointment and wrong for a clinician mid-question: a
+callback is not a thing they asked for, and "have staff help" is addressed to the
+wrong person. §6's clinical bullet is a different instruction — *"Do not degrade
+to a partial answer, a general answer, or an answer from model knowledge"* — and
+saying "tell the patient" to a clinician session would also put the wrong frame
+on the whole exchange.
+"""
+
+CLINICAL_BACKEND_MESSAGES: dict[str, str] = {
+    "directory_unavailable": (
+        "The clinic's identity provider did not respond, so the credential could "
+        "not be checked. This is an outage, not a finding about this person."
+    )
+}
+"""Where a clinical failure needs saying more precisely than "could not be
+completed" — here, so an outage cannot be mistaken for a refused clinician."""
 
 
 # ------------------------------------------------------------- backends ---
@@ -161,6 +189,23 @@ def normalise_errors(name: str) -> Callable[[Callable[..., Any]], Callable[..., 
             try:
                 return fn(**kwargs)
             except BackendError as exc:
+                # Which principal is being spoken to changes what §6 asks for.
+                # Read defensively: a backend can fail outside a bound session
+                # (a health check, a script), and that must not turn one failure
+                # into two.
+                try:
+                    clinical = current_session().role is Role.CLINICAL_ASSISTANT
+                except Exception:  # noqa: BLE001
+                    clinical = False
+
+                if clinical:
+                    return {
+                        "error": exc.code,
+                        "message": CLINICAL_BACKEND_MESSAGES.get(
+                            exc.code, "The request could not be completed."
+                        ),
+                        "remedy": CLINICAL_BACKEND_REMEDY,
+                    }
                 return {
                     "error": exc.code,
                     "message": "The request could not be completed.",
@@ -261,15 +306,53 @@ def load() -> dict[str, BetaFunctionTool]:
     return dict(_REGISTRY)
 
 
+CLINICAL_TOOLS = frozenset({"authenticate_clinical_user"})
+"""Functions registered only in a clinical session (spec §2).
+
+§2: they *"are absent from the tool schema presented to a patient session, so a
+patient session cannot name them, and a request to call one is answered as an
+unknown capability rather than as a refusal"*. Absent, not refused — which makes
+this a registry concern rather than a policy one. The gate's own role check
+(C2) is the second layer, not the first.
+
+Grows with C3–C5. The remaining three §2 names are deliberately not listed yet:
+a tool that does not exist cannot be exposed by mistake.
+"""
+
+
+def tools_for(role: Role) -> list[BetaFunctionTool]:
+    """The tool schema for one principal.
+
+    A clinical session gets the patient-facing functions too: §1.1 says the
+    clinical role may perform *"the patient-facing workflows performed on a
+    patient's behalf"*, and §3.2's last bullet keeps those behind the ordinary
+    §3.1 authorization path regardless of who is asking.
+
+    Anything that is not a clinical session — including a clinical session whose
+    authentication has lapsed, whose ``effective_role`` is SYSTEM — sees the
+    patient set with the clinical names removed.
+    """
+    registry = load()
+    if role is Role.CLINICAL_ASSISTANT:
+        return list(registry.values())
+    return [tool for name, tool in registry.items() if name not in CLINICAL_TOOLS]
+
+
 def all_tools() -> list[BetaFunctionTool]:
-    """Every tool, for the ``tools=`` argument of the agent loop."""
-    return list(load().values())
+    """Every tool a patient session may see.
+
+    Deliberately *not* every registered tool. This is what the orchestrator has
+    always called, so the default has to stay the safe one: a clinical function
+    added to the registry must not appear in a patient's schema because somebody
+    forgot to update a call site.
+    """
+    return tools_for(Role.PATIENT)
 
 
 def get(name: str) -> BetaFunctionTool:
     return load()[name]
 
 
-def tool_definitions() -> list[dict[str, Any]]:
+def tool_definitions(role: Role = Role.PATIENT) -> list[dict[str, Any]]:
     """The JSON the model actually receives. Snapshotted by the schema test."""
-    return [cast("dict[str, Any]", definition.to_dict()) for definition in all_tools()]
+    return [cast("dict[str, Any]", definition.to_dict()) for definition in tools_for(role)]

@@ -295,6 +295,18 @@ TOOL_POLICY: dict[str, Policy] = {
     # Knowledge extension. Verified because a complaint is health information
     # about the person describing it, and because the routing it produces leads
     # straight into booking, which is itself verified.
+    # Clinical review (spec r3 §4.13). OPEN on the *patient* ladder because it
+    # touches no patient record — a clinician authenticating has established
+    # nobody, and §3.2 is explicit that clinical authentication "does not confer
+    # access to an arbitrary patient's record". What keeps a patient session out
+    # of it is that the function is not in a patient session's tool schema at
+    # all (§2), which is the registry's job; C2 adds the gate's own role check as
+    # the second layer.
+    "authenticate_clinical_user": Policy(
+        GateLevel.OPEN,
+        rule="spec§3.2/clinical_authentication",
+        redact=("credential_token",),
+    ),
     "suggest_appointment_type": Policy(
         GateLevel.VERIFIED,
         rule="spec§4.5/appointment_search",
