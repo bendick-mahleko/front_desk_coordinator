@@ -316,11 +316,50 @@ def test_a_role_not_in_the_clinic_permitted_list_is_refused(call, sim, clinic, a
 # ------------------------------------------------------- session hygiene ---
 
 
-def test_a_patient_session_cannot_authenticate(call):
-    """Defence in depth. §2 keeps the function out of a patient session's tool
-    schema entirely, so this is unreachable through the model — and this is the
-    one function whose failure mode is a privilege escalation."""
+def test_a_patient_session_is_told_the_function_does_not_exist(call):
+    """spec §2 — *"a request to call one is answered as an unknown capability
+    rather than as a refusal"*.
+
+    Since C2 the gate answers before the tool body runs, and it answers with
+    unknown_function rather than the tool's own not_a_clinical_session. That is
+    the stronger outcome: "refused" tells a patient the capability is there and
+    they are not allowed it, which is an invitation to try harder.
+
+    The tool keeps its own check as a second layer — see
+    test_the_tool_refuses_a_patient_session_even_without_the_gate.
+    """
     result = call(Session(), **creds(GOOD))
+
+    assert result["error"] == "unknown_function"
+    assert "clinical channel" in result["remedy"]
+
+
+def test_the_tool_refuses_a_patient_session_even_without_the_gate(sim, clinic, audit):
+    """The second layer, exercised with the gate's verdict forced to allow.
+
+    Unreachable today through both the schema and the gate. Kept because
+    "unreachable" is a claim about this week's wiring, and this is the one
+    function whose failure mode is a privilege escalation.
+    """
+    from unittest.mock import patch
+
+    from app.policy.gates import Verdict
+    from app.store.session import GateLevel
+    from app.tools.schemas import AuthenticateClinicalUserArgs
+
+    allow = Verdict.allow(
+        "forced-for-test",
+        AuthenticateClinicalUserArgs(**creds(GOOD)),
+        required=GateLevel.OPEN,
+        actual=GateLevel.OPEN,
+    )
+
+    with (
+        session_scope(Session(), gate=PolicyGate(clinic), audit=audit),
+        registry.backend_scope(sim),
+        patch.object(PolicyGate, "evaluate", return_value=allow),
+    ):
+        result = json.loads(registry.load()["authenticate_clinical_user"].call(creds(GOOD)))
 
     assert result["error"] == "not_a_clinical_session"
 

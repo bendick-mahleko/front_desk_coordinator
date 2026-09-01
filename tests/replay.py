@@ -60,6 +60,9 @@ class ScriptedBackend:
         }
     )
     turns_run: int = 0
+    seen_roles: list[Any] = field(default_factory=list)
+    """Which principal each turn ran as, so a test can assert §2's tool split
+    reached the model call rather than only the registry."""
     seen_system: list[list[dict[str, Any]]] = field(default_factory=list)
     seen_messages: list[list[dict[str, Any]]] = field(default_factory=list)
     results: list[Any] = field(default_factory=list)
@@ -70,7 +73,9 @@ class ScriptedBackend:
         system: list[dict[str, Any]],
         messages: list[dict[str, Any]],
         recorder: TurnRecorder,
+        role: Any = None,
     ) -> ModelTurn:
+        self.seen_roles.append(role)
         self.seen_system.append(system)
         self.seen_messages.append(messages)
 

@@ -13,7 +13,7 @@ import pytest
 
 from app.policy.gates import PRECONDITIONS, TOOL_POLICY, PolicyGate, Verdict
 from app.policy.messages import DenialCode, Remedy
-from app.store.session import GateLevel, Session, SubjectStatus, slot_time_key
+from app.store.session import GateLevel, Role, Session, SubjectStatus, slot_time_key
 from app.tools.schemas import ARGUMENT_MODELS
 
 PINNED = date(2026, 9, 7)
@@ -125,6 +125,29 @@ def registered() -> Session:
     session.existence_checked = True
     session.mark_registered("PT-4900")
     return session
+
+
+def clinical_authenticated() -> Session:
+    """A clinical session past §3.2 authentication."""
+    from datetime import UTC, datetime, timedelta
+
+    from app.tools.schemas import ClinicalRole
+
+    session = Session(role=Role.CLINICAL_ASSISTANT, channel="clinical")
+    session.existence_checked = True
+    session.bind_clinical_authentication(
+        "STAFF-2001", ClinicalRole.PHYSICIAN, datetime.now(UTC) + timedelta(minutes=30)
+    )
+    return session
+
+
+def session_for(fn_name: str) -> Session:
+    """A session of a principal the function is registered for, verified as far
+    as the patient ladder allows."""
+    policy = TOOL_POLICY[fn_name]
+    if Role.PATIENT not in policy.roles:
+        return clinical_authenticated()
+    return verified()
 
 
 def locked() -> Session:
@@ -619,8 +642,14 @@ def test_schema_enforced_rules_are_documented_not_duplicated():
 
 @pytest.mark.parametrize("fn_name", sorted(TOOL_POLICY))
 def test_every_function_denies_a_call_with_a_bad_enum_or_missing_field(gate, fn_name):
-    """Check 1 fires for every function, not just the ones with fixtures."""
-    session = satisfy_preconditions(verified(), fn_name)
+    """The schema check fires for every function, not just the ones with
+    fixtures.
+
+    Each function is called by a principal it exists for. Otherwise the role
+    check answers first with unknown_function, which is correct and is not what
+    this test is measuring — r3 put two checks ahead of the schema.
+    """
+    session = satisfy_preconditions(session_for(fn_name), fn_name)
     verdict = gate.evaluate(fn_name, {"definitely_not_a_field": True}, session)
 
     assert not verdict.allowed

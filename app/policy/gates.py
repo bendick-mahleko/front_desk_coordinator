@@ -11,6 +11,13 @@ little as possible about why:
 3. **Provenance**    — did this identifier come from a real result
 4. **Preconditions** — has the required earlier step happened
 
+Revision 3 inserts a check ahead of all four. Role answers *which principal is
+holding this session*, and it is not a rung on the verification ladder: §3.2 is
+explicit that the two are independent and *"neither substitutes for the other"*.
+It runs first because it is the cheapest, because it needs no arguments, and
+because telling an unauthorised caller whether their arguments were well-formed
+is a small disclosure for no benefit.
+
 A denial is not an exception. It is a verdict the tool layer turns into a tool
 result the model reads and recovers from.
 """
@@ -27,7 +34,7 @@ from app.config import ClinicConfig, get_clinic_config
 from app.policy import provenance
 from app.policy.messages import DenialCode, Remedy, denial_message, remedy_text
 from app.policy.redaction import redact_args
-from app.store.session import GateLevel, Session, SubjectStatus
+from app.store.session import GateLevel, Role, Session, SubjectStatus
 from app.tools.schemas import ARGUMENT_MODELS, AppointmentType, MessageType, StrictArgs
 
 # ---------------------------------------------------------------- verdict ---
@@ -179,6 +186,19 @@ PRECONDITIONS: dict[str, PreconditionCheck] = {
 # ---------------------------------------------------------------- policies ---
 
 
+PATIENT_WORKFLOWS: tuple[Role, ...] = (Role.PATIENT, Role.CLINICAL_ASSISTANT)
+"""Both principals reach the §4.1–§4.12 functions.
+
+§1.1 gives the clinical role *"the patient-facing workflows performed on a
+patient's behalf"* in addition to its own, and §3.2's last bullet keeps those
+behind the ordinary §3.1 authorization path whoever is asking. So this is not a
+widening: a clinician still verifies a patient before reading their record.
+"""
+
+CLINICAL_ONLY: tuple[Role, ...] = (Role.CLINICAL_ASSISTANT,)
+"""spec §2 — registered only in a clinical session."""
+
+
 @dataclass(frozen=True)
 class Policy:
     level: GateLevel
@@ -188,6 +208,27 @@ class Policy:
 
     accepts: tuple[SubjectStatus, ...] = ()
     """Statuses that satisfy this function despite not reaching ``level``."""
+
+    roles: tuple[Role, ...] = PATIENT_WORKFLOWS
+    """Which principals this function exists for (spec §2).
+
+    A session whose role is absent here is told the function does not exist,
+    rather than that it is refused — §2: *"a request to call one is answered as
+    an unknown capability rather than as a refusal"*. Keyed on the session's
+    established ``role``, not its ``effective_role``, so an expired clinical
+    session still sees its own functions and gets an authorization error rather
+    than being told they never existed.
+    """
+
+    requires_clinical_auth: bool = False
+    """spec §4.13 — *"Call before any function in §4.14–§4.16. An unauthenticated
+    call to those functions is an authorization error, not a conversational
+    refusal."*
+
+    False on ``authenticate_clinical_user`` itself, which is the function you
+    call *to* satisfy this, and False on every patient workflow: §4.13 scopes the
+    requirement to §4.14–§4.16 and nothing else.
+    """
 
     requires: tuple[str, ...] = ()
     conditional: Callable[[Any], GateLevel] | None = None
@@ -305,6 +346,11 @@ TOOL_POLICY: dict[str, Policy] = {
     "authenticate_clinical_user": Policy(
         GateLevel.OPEN,
         rule="spec§3.2/clinical_authentication",
+        roles=CLINICAL_ONLY,
+        # False: this is the function that satisfies the requirement. Setting it
+        # True would make clinical review unreachable — you would need to be
+        # authenticated to authenticate.
+        requires_clinical_auth=False,
         redact=("credential_token",),
     ),
     "suggest_appointment_type": Policy(
@@ -344,7 +390,45 @@ class PolicyGate:
                 detail=f"no policy or argument model for {fn_name!r}",
             )
 
-        # 1 — schema
+        # 1 — does this function exist for this principal?
+        #
+        # spec §2: the clinical functions are "absent from the tool schema
+        # presented to a patient session, so a patient session cannot name them,
+        # and a request to call one is answered as an unknown capability rather
+        # than as a refusal". The registry keeps them out of the schema; this
+        # makes the second half true if a model names one anyway.
+        #
+        # Deliberately indistinguishable from a function that does not exist at
+        # all. "That is refused" tells a patient the capability is there and
+        # they are not allowed it, which is an invitation to try harder.
+        if session.role not in policy.roles:
+            return Verdict.deny(
+                DenialCode.UNKNOWN_FUNCTION,
+                rule=policy.rule,
+                remedy=Remedy.USE_CLINICAL_CHANNEL,
+                detail=f"{fn_name!r} is not registered for role {session.role.value!r}",
+            )
+
+        # 2 — role authentication (spec §4.13)
+        if policy.requires_clinical_auth and session.effective_role is not Role.CLINICAL_ASSISTANT:
+            # Expiry and never-authenticated are different situations for the
+            # person on the other end: one needs a new session, the other needs
+            # to authenticate. §4.13 makes both an authorization error rather
+            # than a conversational refusal, and neither may degrade to a
+            # partial answer (§6).
+            expired = session.authenticated_at is not None
+            return Verdict.deny(
+                DenialCode.SESSION_EXPIRED if expired else DenialCode.ROLE_REQUIRED,
+                rule="spec§4.13/authentication_required",
+                remedy=Remedy.REAUTHENTICATE if expired else Remedy.AUTHENTICATE_FIRST,
+                detail=(
+                    "clinical authentication expired"
+                    if expired
+                    else "no clinical authentication on this session"
+                ),
+            )
+
+        # 3 — schema
         try:
             args = model.model_validate(raw_args)
         except ValidationError as exc:
@@ -358,7 +442,7 @@ class PolicyGate:
         required = policy.required_level(args)
         actual = session.attained_level
 
-        # 2 — authorization
+        # 4 — authorization
         if not self._authorized(policy, required, session, args):
             return Verdict.deny(
                 DenialCode.VERIFICATION_REQUIRED,
@@ -368,7 +452,7 @@ class PolicyGate:
                 actual=actual,
             )
 
-        # 3 — provenance
+        # 5 — provenance
         fabricated = provenance.check(args.model_dump(), session)
         if fabricated is not None:
             argument, remedy = fabricated
@@ -381,7 +465,7 @@ class PolicyGate:
                 detail=f"{argument} was not produced by any result in this session",
             )
 
-        # 4 — preconditions
+        # 6 — preconditions
         for name in policy.requires:
             failed = PRECONDITIONS[name](args, session, self._clinic)
             if failed is not None:

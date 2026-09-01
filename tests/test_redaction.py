@@ -225,6 +225,10 @@ def test_remedies_say_what_to_do_next():
         "confirm",
         "escalate",
         "transfer",
+        # r3 — where the answer is "not here", the action is to send the person
+        # somewhere it can be answered.
+        "direct",
+        "establish",
     )
     for remedy in messages.Remedy:
         text = messages.remedy_text(remedy).lower()

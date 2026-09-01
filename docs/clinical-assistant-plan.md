@@ -316,7 +316,7 @@ a named individual"*, and a log that masked the staff id could not do the one jo
 §3.2 gives it. `credential_token` is redacted, and a parametrized test asserts
 every fixture token stays out of the audit on both the success and failure paths.
 
-### C2 — Per-role tool schema and the role gate (1 day, ~40 tests)
+### C2 — Per-role tool schema and the role gate — **DONE** (89 tests)
 
 | File | Change |
 |---|---|
@@ -341,9 +341,40 @@ Step 1 already exists and already returns `UNKNOWN_FUNCTION`, which is exactly
 existing code happens to satisfy the new rule, provided the tool is genuinely
 absent from the patient schema rather than merely policied against.
 
-Exit: `tool_definitions(Role.PATIENT)` contains 16 entries and none of the four
-clinical names; a patient session naming `get_dosage_information` gets
-`unknown_function`; the check-order test is extended, not replaced.
+Exit (all met): `tool_definitions(Role.PATIENT)` contains 16 entries and none of
+the clinical names; a patient session naming a clinical function gets
+`unknown_function`; the check-order test is extended, not replaced. Two mutants —
+gate skips the role check, registry hands every tool to every role — fail four
+tests each, and different four, so the two layers are independently load-bearing
+rather than one covering for the other.
+
+Four things worth recording.
+
+**The role map has one source of truth.** C1 left `CLINICAL_TOOLS` as a literal
+in the registry alongside `Policy.roles` in the gate. Two copies of an
+access-control fact is one too many, so the registry now derives from
+`TOOL_POLICY`; adding a clinical function is one policy entry and nothing else.
+
+**Schema is keyed on `role`, authentication on `effective_role`.** An expired
+clinical session still *sees* its own functions, so calling one yields §4.13's
+authorization error rather than "that does not exist" — a clinician needs to know
+their session lapsed, not that they imagined the capability. This is the
+composition C0 built and nothing exercised until now.
+
+**Expiry and never-authenticated are different denials.** `SESSION_EXPIRED` needs
+a new session; `ROLE_REQUIRED` needs a first authentication. Conflating them
+wastes the clinician's turn, and the expiry remedy carries §6's prohibition on
+degrading to a partial or general answer in so many words.
+
+**A clinical turn cannot run on the patient prompt.** `system.md` opens as a
+receptionist, forbids diagnostic guidance, and carries the §4.2 masking rules for
+a patient having their own record read back to them; a clinician on that prompt
+would have the wrong frame on the whole exchange. `PROMPT_BY_ROLE` therefore has
+no clinical entry and `system_blocks` raises `PromptUnavailable` — **C7 owes the
+clinical prompt**, and until it lands the failure is loud rather than plausible.
+Deferred deliberately: the clinical framing is Appendix A.0's, it depends on the
+§4.14–§4.16 functions that do not exist yet, and a prompt instructing a model to
+cite retrieved context when there is nothing to retrieve is worse than none.
 
 ### C3 — `search_clinical_knowledge` (½ day, ~25 tests)
 

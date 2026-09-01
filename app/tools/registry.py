@@ -34,6 +34,7 @@ from pydantic import BaseModel
 
 from app.clinic_sim import ClinicSimulator
 from app.policy.decorator import current_session, gated
+from app.policy.gates import TOOL_POLICY
 from app.ports import BackendError
 from app.store.session import Role
 from app.tools.idempotency import idempotency_key, needs_key
@@ -306,36 +307,39 @@ def load() -> dict[str, BetaFunctionTool]:
     return dict(_REGISTRY)
 
 
-CLINICAL_TOOLS = frozenset({"authenticate_clinical_user"})
-"""Functions registered only in a clinical session (spec §2).
+def roles_for(name: str) -> tuple[Role, ...]:
+    """Which principals a function is registered for.
 
-§2: they *"are absent from the tool schema presented to a patient session, so a
-patient session cannot name them, and a request to call one is answered as an
-unknown capability rather than as a refusal"*. Absent, not refused — which makes
-this a registry concern rather than a policy one. The gate's own role check
-(C2) is the second layer, not the first.
+    Read from ``TOOL_POLICY`` rather than a list kept here. There was a second
+    copy of this fact briefly and two copies of an access-control fact is one
+    too many — the policy table is where §2 and §3 already live, so it is the
+    one that answers.
+    """
+    policy = TOOL_POLICY.get(name)
+    return policy.roles if policy else ()
 
-Grows with C3–C5. The remaining three §2 names are deliberately not listed yet:
-a tool that does not exist cannot be exposed by mistake.
+
+CLINICAL_TOOLS = frozenset(
+    name for name, policy in TOOL_POLICY.items() if Role.PATIENT not in policy.roles
+)
+"""Functions absent from a patient session's schema (spec §2).
+
+Derived, so adding a clinical function to ``TOOL_POLICY`` with
+``roles=CLINICAL_ONLY`` is the whole of the work. Forgetting to update a list
+here is not a failure mode that exists.
 """
 
 
 def tools_for(role: Role) -> list[BetaFunctionTool]:
-    """The tool schema for one principal.
+    """The tool schema for one principal (spec §2).
 
-    A clinical session gets the patient-facing functions too: §1.1 says the
-    clinical role may perform *"the patient-facing workflows performed on a
-    patient's behalf"*, and §3.2's last bullet keeps those behind the ordinary
-    §3.1 authorization path regardless of who is asking.
-
-    Anything that is not a clinical session — including a clinical session whose
-    authentication has lapsed, whose ``effective_role`` is SYSTEM — sees the
-    patient set with the clinical names removed.
+    Keyed on the session's *established* role, not its ``effective_role``. An
+    expired clinical session still sees its own functions, so calling one yields
+    §4.13's authorization error rather than being told the capability never
+    existed — the clinician needs to know their session lapsed, not that they
+    imagined it.
     """
-    registry = load()
-    if role is Role.CLINICAL_ASSISTANT:
-        return list(registry.values())
-    return [tool for name, tool in registry.items() if name not in CLINICAL_TOOLS]
+    return [tool for name, tool in load().items() if role in roles_for(name)]
 
 
 def all_tools() -> list[BetaFunctionTool]:

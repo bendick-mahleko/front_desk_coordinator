@@ -37,12 +37,29 @@ from app.policy.messages import DenialCode
 from app.policy.redaction import extract_phones, redact_args
 from app.safety.prescreen import Label, Prescreen, Screening
 from app.store.audit import AuditWriter
-from app.store.session import Session
+from app.store.session import Role, Session
 from app.tools import registry
 
 logger = logging.getLogger("frontdesk.orchestrator")
 
 PROMPTS = Path(__file__).parent / "prompts"
+
+PROMPT_BY_ROLE: dict[Role, str] = {
+    Role.PATIENT: "system.md",
+}
+"""Which prompt each principal runs on.
+
+``Role.CLINICAL_ASSISTANT`` is deliberately absent rather than pointed at
+``system.md``: the clinical framing is Appendix A.0's, it depends on the §4.14–
+§4.16 functions that do not exist yet, and a half-written prompt telling a model
+to cite retrieved context when there is nothing to retrieve would be worse than
+none. C7 supplies it; until then a clinical turn raises.
+"""
+
+
+class PromptUnavailable(RuntimeError):
+    """No system prompt is defined for a session's role."""
+
 
 MAX_INVALID_CALLS_PER_TURN = 3
 """After this many malformed calls in one turn, stop and escalate (P4-T7).
@@ -218,6 +235,7 @@ class ModelBackend(Protocol):
         system: list[dict[str, Any]],
         messages: list[dict[str, Any]],
         recorder: TurnRecorder,
+        role: Role = Role.PATIENT,
     ) -> ModelTurn: ...
 
 
@@ -227,7 +245,7 @@ class AnthropicBackend:
     def __init__(self, settings: Settings | None = None, client: Any = None) -> None:
         self._settings = settings or get_settings()
         self._client = client
-        self._tools = registry.all_tools()
+        self._tools_by_role: dict[Role, list[Any]] = {}
 
     @property
     def client(self) -> Any:
@@ -241,13 +259,30 @@ class AnthropicBackend:
             self._client = anthropic.Anthropic(**self._settings.client_kwargs())
         return self._client
 
-    def _request(self, system: list[dict[str, Any]], messages: list[dict[str, Any]]) -> Any:
+    def _tools(self, role: Role) -> list[Any]:
+        """The schema for this principal, resolved once per role per process.
+
+        Per role rather than once per backend: spec §2 makes the tool list a
+        function of who is asking, and a list captured at construction would
+        hand a patient session the clinical functions the moment a clinical
+        session existed.
+        """
+        if role not in self._tools_by_role:
+            self._tools_by_role[role] = registry.tools_for(role)
+        return self._tools_by_role[role]
+
+    def _request(
+        self,
+        system: list[dict[str, Any]],
+        messages: list[dict[str, Any]],
+        role: Role = Role.PATIENT,
+    ) -> Any:
         kwargs: dict[str, Any] = {
             "model": self._settings.route_model(self._settings.agent_model),
             "max_tokens": MAX_TOKENS,
             "system": system,
             "messages": messages,
-            "tools": self._tools,
+            "tools": self._tools(role),
             "max_iterations": MAX_ITERATIONS,
             # budget_tokens is rejected on this model family; adaptive is the
             # current surface.
@@ -268,13 +303,14 @@ class AnthropicBackend:
         system: list[dict[str, Any]],
         messages: list[dict[str, Any]],
         recorder: TurnRecorder,
+        role: Role = Role.PATIENT,
     ) -> ModelTurn:
         last = None
         usage: dict[str, int] = {}
 
         for attempt in range(MODEL_RETRIES):
             try:
-                runner = self._request(system, messages)
+                runner = self._request(system, messages, role)
                 for message in runner:
                     last = message
                     usage = _usage(message)
@@ -434,15 +470,31 @@ class Orchestrator:
 
     # ------------------------------------------------------------ prompt ---
 
-    def system_blocks(self) -> list[dict[str, Any]]:
+    def system_blocks(self, role: Role = Role.PATIENT) -> list[dict[str, Any]]:
         """The frozen prefix, with the cache breakpoint at its end.
 
         Rendered from configuration rather than hard-coded so the clinic's own
         name and timezone appear, and so the same prompt serves a second clinic.
+
+        Per role, because ``system.md`` is written to a patient: it opens as a
+        receptionist, forbids diagnostic guidance, and carries the §4.2 masking
+        rules for someone whose own record is being read back to them. Handing
+        that to a clinician asking about dosage would put the wrong frame on the
+        entire exchange, and the wrong frame is the failure that prompt exists
+        to prevent.
         """
+        prompt = PROMPT_BY_ROLE.get(role)
+        if prompt is None:
+            # Loudly, not quietly. A clinical session that silently ran on the
+            # patient prompt would look like it worked.
+            raise PromptUnavailable(
+                f"no system prompt for role {role.value!r}. The clinical prompt "
+                f"is C7's obligation (docs/clinical-assistant-plan.md); until it "
+                f"exists a clinical session must not run a turn."
+            )
         now = datetime.now(self._clinic.tz)
         text = (
-            (PROMPTS / "system.md")
+            (PROMPTS / prompt)
             .read_text(encoding="utf-8")
             .format(
                 clinic_name=self._clinic.name,
@@ -547,10 +599,15 @@ class Orchestrator:
                 return self._emergency(session, user_text, recorder)
 
             messages = self.build_messages(session, user_text, screening)
-            system = self.system_blocks()
+            system = self.system_blocks(session.role)
 
             try:
-                outcome = self._backend.run(system=system, messages=messages, recorder=recorder)
+                outcome = self._backend.run(
+                    system=system,
+                    messages=messages,
+                    recorder=recorder,
+                    role=session.role,
+                )
             except Exception as exc:  # noqa: BLE001 - surfaced to the patient
                 logger.exception("turn failed")
                 recorder.events.append(TraceEvent("error", {"error": type(exc).__name__}))
