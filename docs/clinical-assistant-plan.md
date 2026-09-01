@@ -633,7 +633,7 @@ authored for *patient-facing routing* — emergency means tell them to call 911 
 and repurposing a patient-routing label as clinician-facing urgency is the same
 provenance slip the rule-out attribution exists to avoid. Membership only.
 
-### C6 — Audit, and the cross-role assertion (½ day, ~30 tests)
+### C6 — Audit, and the cross-role assertion — **DONE** (18 tests)
 
 | File | Change |
 |---|---|
@@ -655,6 +655,39 @@ loudly the moment a tier filter regresses.
 Note the asymmetry to get right: a dose in a *clinical* session's log is correct
 and expected. The record must therefore carry its role, or the scan cannot tell
 a leak from normal operation.
+
+Exit (all met): both roles verify clean end to end, the scan fires on a dose and
+on a clinician-tier marker under the patient role and *not* under the clinical
+one, and the two scans are independent. Three mutants — skip the scan, ignore the
+role, stop labelling the role — fail 4, 2 and 4 tests, a different set each time.
+
+**The first design was wrong and running it showed how.** "Absent means patient"
+looked like it would save threading a role through eleven writer methods. It
+broke on the first real clinical session: `gate_decision` for
+`search_clinical_knowledge` logs `tier: clinician_only`, carried no role, and was
+therefore scanned strictly and flagged. A clinical session writes *ordinary*
+records too, so every record needs the label — not just the ones a clinical
+method wrote.
+
+Threaded with a **ContextVar bound by `session_scope`**, following the pattern the
+codebase already uses for the session, the gate, the backends and the knowledge
+base. One writer serves every session in the process, so a field on the writer
+would let two concurrent requests label each other's records; a ContextVar is
+per-task. Absent still means patient, so a record written outside any scope gets
+the stricter scan — the right way for "nobody thought about this" to fail.
+
+**The scan catches nothing today, and the test says so rather than implying
+otherwise.** Measured: a patient escalation that legitimately attaches
+clinician-only context to a staff ticket puts **no** dose in the log — the tool
+result records an outcome rather than a body, and the notes argument is redacted
+on the way in. So it is a tripwire for a regression, not a fix for a leak, which
+is what a verifier assertion should be. It fires the moment somebody starts
+logging a result body, a change that would otherwise look harmless. A companion
+test asserts the *ticket* still carries the context, so a later tightening of the
+log scan cannot be "fixed" by removing what §4.12 requires.
+
+`DOSE` moved out of three test files into `app/policy/clinical.py`. One definition
+too few for something three layers depend on.
 
 ### C7 — Surfaces (½ day, ~20 tests)
 
