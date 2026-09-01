@@ -18,9 +18,53 @@ from datetime import UTC, date, datetime, time
 from enum import StrEnum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
 
-from app.tools.schemas import IdentifierType
+from app.channel import is_patient_facing
+from app.tools.schemas import ClinicalRole, IdentifierType
+
+
+class Role(StrEnum):
+    """The principal bound to a session (spec §1.1).
+
+    Bound at session establishment and *"never inferred from, or changed by,
+    anything said inside the conversation"*. That sentence is the reason this is
+    a field with no setter rather than something a tool can raise.
+
+    Distinct from ``SubjectStatus``, which is about *whose record* may be
+    touched, and from ``ClinicalRole``, which is a licensed job title asserted by
+    the identity provider. §3.2: the two questions are independent and *"neither
+    substitutes for the other"*.
+    """
+
+    SYSTEM = "system"
+    """The clinic's own automation. Not a conversational participant (§1.1), so
+    a session whose effective role is SYSTEM can do nothing but authenticate."""
+
+    PATIENT = "patient"
+    CLINICAL_ASSISTANT = "clinical_assistant"
+
+
+class RoleImmutable(RuntimeError):
+    """An attempt to change what a session is after it was established.
+
+    Not a denial the model can recover from — a denial is a verdict about a
+    proposed call, and this is a programming error in the process. §3.2 makes
+    role, staff identifier and expiry *"read-only for the session's lifetime"*;
+    code that tries anyway has misunderstood something and should stop.
+    """
+
+
+BOUND_AT_ESTABLISHMENT = frozenset({"session_id", "created_at", "channel", "role", "salt"})
+"""Fields fixed when the session is created. §1.1 for ``role``; the rest are
+identity and would invalidate the audit chain or the attempt digests."""
+
+WRITE_ONCE = frozenset({"staff_id", "asserted_role", "authenticated_at", "expires_at"})
+"""Written once, at authentication, then read-only (spec §3.2 item 4).
+
+Write-once rather than establishment-bound because they are unknown when the
+session starts. Re-authentication after expiry needs a *new* session, which is
+what §3.2's "require re-authentication" means given the role is fixed."""
 
 
 class SubjectStatus(StrEnum):
@@ -98,11 +142,26 @@ class Session(BaseModel):
 
     session_id: str = Field(default_factory=lambda: f"s_{uuid.uuid4().hex[:12]}")
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    channel: Literal["text"] = "text"
+    channel: Literal["text", "clinical"] = "text"
     turn_index: int = 0
+
+    # --- principal (spec §1.1, §3.2) --------------------------------------
+    role: Role = Role.PATIENT
+    """What this session is. Immutable — see BOUND_AT_ESTABLISHMENT."""
+
+    staff_id: str | None = None
+    asserted_role: ClinicalRole | None = None
+    """The role the identity provider returned. Never the one a caller claimed."""
+
+    authenticated_at: datetime | None = None
+    expires_at: datetime | None = None
 
     salt: str = Field(default_factory=lambda: secrets.token_hex(16))
     """Per-session salt for attempt digests. Never leaves the process."""
+
+    _established: bool = PrivateAttr(default=False)
+    """False only while pydantic is building the object. Guards __setattr__ so
+    construction and rehydration from the store can set what nothing else may."""
 
     # --- subject identity ------------------------------------------------
     status: SubjectStatus = SubjectStatus.NONE
@@ -171,6 +230,129 @@ class Session(BaseModel):
 
     def was_offered(self, day: date, at: time) -> bool:
         return slot_time_key(day, at) in self.offered_times
+
+    # ------------------------------------------------------- establishment ---
+
+    def model_post_init(self, context: Any, /) -> None:
+        """Close the session to structural change.
+
+        Everything before this point is construction, including rehydration from
+        the session store, which must be able to restore fields nothing else may
+        write. Everything after it goes through __setattr__ below.
+        """
+        self._established = True
+
+    @model_validator(mode="after")
+    def _clinical_sessions_are_not_patient_facing(self) -> Session:
+        """spec §3.2 — *"A Clinical Assistant session is never established on a
+        patient-facing channel."*
+
+        A structural invariant, so it holds for every construction path: an
+        endpoint, a test, a rehydration from the store. Which channels are
+        *eligible* is clinic configuration (``ClinicalConfig.channels``) and is
+        checked when a session is established; that a patient-facing channel is
+        never eligible is not configurable, and is checked here.
+        """
+        if self.role is Role.CLINICAL_ASSISTANT and is_patient_facing(self.channel):
+            raise ValueError(
+                f"a clinical_assistant session cannot be established on the "
+                f"patient-facing channel {self.channel!r} (spec §3.2)"
+            )
+        return self
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        """Refuse the writes §1.1 and §3.2 forbid.
+
+        RoleImmutable rather than a gate denial: a denial is a verdict about
+        something the *model* proposed and can recover from, and no model can
+        reach this. Code that tries has misunderstood the design, and the loudest
+        possible failure is the kindest one.
+        """
+        if getattr(self, "_established", False):
+            if name in BOUND_AT_ESTABLISHMENT:
+                raise RoleImmutable(
+                    f"{name!r} is bound when the session is established and cannot "
+                    f"be changed (spec §1.1)"
+                )
+            if name in WRITE_ONCE and getattr(self, name, None) is not None:
+                raise RoleImmutable(
+                    f"{name!r} is written once at authentication and is read-only for "
+                    f"the session's lifetime (spec §3.2)"
+                )
+        super().__setattr__(name, value)
+
+    # ---------------------------------------------------------- principal ---
+
+    @property
+    def clinical_authentication_valid(self) -> bool:
+        """Is a clinical authentication in force *right now*?
+
+        Derived rather than stored. A boolean field would be one clock tick away
+        from disagreeing with ``expires_at``, and the disagreement would grant
+        access rather than deny it.
+        """
+        if self.role is not Role.CLINICAL_ASSISTANT:
+            return False
+        if self.authenticated_at is None or self.expires_at is None:
+            return False
+        return datetime.now(UTC) < self.expires_at
+
+    @property
+    def effective_role(self) -> Role:
+        """The role whose capabilities are live now.
+
+        This reconciles two sentences that look contradictory. §3.2: *"The role
+        is fixed for the lifetime of the session."* §4.13: *"On expiry or
+        failure, drop to the system role. Do not fall back to the patient
+        role."*
+
+        Both hold if the *established* principal is immutable while the
+        *effective* capability lapses. An unauthenticated or expired clinical
+        session reads as SYSTEM — which §1.1 defines as not a conversational
+        participant, so nothing is callable but authentication. It never reads
+        as PATIENT, so expiry cannot hand a clinician a patient's workflows.
+        """
+        if self.role is Role.CLINICAL_ASSISTANT and not self.clinical_authentication_valid:
+            return Role.SYSTEM
+        return self.role
+
+    @property
+    def is_patient_facing(self) -> bool:
+        """Whether output from this session may reach a member of the public.
+
+        Read by the audit verifier: a dose in a patient-facing session's log is
+        a §7.3 leak, and the same dose in a clinical session's log is the
+        feature working.
+        """
+        return is_patient_facing(self.channel)
+
+    def bind_clinical_authentication(
+        self,
+        staff_id: str,
+        asserted_role: ClinicalRole,
+        expires_at: datetime,
+        now: datetime | None = None,
+    ) -> None:
+        """Record a successful §3.2 authentication. Callable once.
+
+        Takes the role the *identity provider* asserted. Nothing here checks a
+        credential — that is the provider's job behind the port (C1) — and
+        nothing here sets ``role``, which was bound when the session was
+        established. This only records the outcome §3.2 item 4 requires.
+
+        A second call raises rather than refreshing: §3.2 makes these read-only
+        for the session's lifetime, so extending a session by re-authenticating
+        into it is exactly what must not be possible.
+        """
+        if self.role is not Role.CLINICAL_ASSISTANT:
+            raise RoleImmutable(
+                "authentication cannot be bound to a session that was not "
+                "established as clinical_assistant (spec §3.2)"
+            )
+        self.staff_id = staff_id
+        self.asserted_role = asserted_role
+        self.authenticated_at = now or datetime.now(UTC)
+        self.expires_at = expires_at
 
     # ---------------------------------------------------------- mutations ---
 

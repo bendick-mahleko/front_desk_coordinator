@@ -58,3 +58,27 @@ policy:
   verification_expires_after_minutes: null
   # spec §7 — what to tell someone to call. Change this outside the US.
   emergency_number: "911"
+
+# spec §3.2 / §4.13 — the Clinical Assistant role.
+#
+# Off by default. A capability that reads dosage information out of an indexed
+# corpus is something a clinic switches on deliberately.
+#
+# `channels` may only name channels that are not patient-facing; the config
+# refuses to load otherwise. That a patient-facing channel is never eligible is
+# not a knob (spec §3.2).
+clinical:
+  enabled: true
+  # TODO(privacy officer): §3.2 defers the interval to configuration (Decision 4).
+  session_minutes: 30
+  channels: ["clinical"]
+  # TODO(compliance): which licensed roles this clinic accepts for §4.14–§4.16.
+  # All five of §4.13 for now; a real clinic is likely to be narrower, since a
+  # clinical pharmacist and a registered nurse do not have the same formulary
+  # authority (Decision 5).
+  permitted_roles:
+    - physician
+    - nurse_practitioner
+    - physician_assistant
+    - registered_nurse
+    - clinical_pharmacist

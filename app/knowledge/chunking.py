@@ -27,6 +27,7 @@ from enum import StrEnum
 from pydantic import BaseModel, ConfigDict
 
 from app.knowledge.corpus import NOT_A_DOSE, DiseaseRecord
+from app.store.session import Role
 
 
 class Tier(StrEnum):
@@ -36,7 +37,66 @@ class Tier(StrEnum):
 
 
 PATIENT_FACING_TIERS = frozenset({Tier.PATIENT_SAFE})
-"""The only tier a patient-facing tool may ever query."""
+"""The only tier whose text may be returned to a patient verbatim.
+
+Narrower than what a patient *session* may query — see TIERS_BY_ROLE. Symptom
+text is queryable in a patient session because a visit type is computed from it,
+and is not returnable because it would read as a diagnosis.
+"""
+
+TIERS_BY_ROLE: dict[Role, frozenset[Tier]] = {
+    # §1.1 — not a conversational participant. An expired clinical session reads
+    # as SYSTEM (Session.effective_role), and it must not be able to read what it
+    # could read a minute ago.
+    Role.SYSTEM: frozenset(),
+    # §1.2 — condition description and causes (patient_safe), plus
+    # symptom-to-appointment routing (routing_only). No clinical content.
+    Role.PATIENT: frozenset({Tier.PATIENT_SAFE, Tier.ROUTING_ONLY}),
+    # §1.2 — the one respect in which the roles differ.
+    Role.CLINICAL_ASSISTANT: frozenset({Tier.PATIENT_SAFE, Tier.ROUTING_ONLY, Tier.CLINICIAN_ONLY}),
+}
+"""Which tiers a session's *role* may query (spec §1.2).
+
+§1.3 is the governing sentence: the tier filter is *"decided when the knowledge
+base is built and enforced at query construction, using the role recorded on the
+session"*, and no instruction inside a conversation may widen it. This table is
+that role-to-tier mapping; the enforcement is in the retrieval tool (C3).
+"""
+
+STAFF_TICKET_TIERS = frozenset({Tier.CLINICIAN_ONLY})
+"""The §4.12 exemption, named so it cannot be mistaken for an oversight.
+
+§4.12 *requires* clinician-only reference context on a complex_symptoms
+escalation ticket, and that ticket is raised from a patient session. So one path
+reads CLINICIAN_ONLY under Role.PATIENT, and it is meant to.
+
+It does not widen §7.3, which forbids clinician-only material in a patient-facing
+*turn*, *text message*, *appointment record* or *patient-visible artifact*. A
+staff ticket is none of those; it is the escalation to a human that §7.3's own
+last bullet prescribes. The audit verifier (C6) asserts the boundary the tier
+filter cannot: that this material reaches the ticket and never the reply.
+"""
+
+
+def tiers_for(role: Role) -> frozenset[Tier]:
+    """Permitted tiers for a role. An unknown role reads nothing.
+
+    Fails closed on purpose: adding a principal to Role without deciding its
+    tiers should make retrieval return nothing, not everything.
+    """
+    return TIERS_BY_ROLE.get(role, frozenset())
+
+
+def narrow_to_role(requested: frozenset[Tier] | set[Tier], role: Role) -> frozenset[Tier]:
+    """Intersect a requested tier set with what the role permits.
+
+    Intersection, never union — §4.14: a requested tier *"is validated against
+    the role's permitted set and rejected if it exceeds it; it is never used to
+    widen access"*. The rejection belongs to the caller, which needs to tell the
+    difference between "nothing matched" and "you asked for something you cannot
+    have"; this only computes the permitted set.
+    """
+    return frozenset(requested) & tiers_for(role)
 
 
 class Chunk(BaseModel):

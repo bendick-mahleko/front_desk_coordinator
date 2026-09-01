@@ -24,6 +24,9 @@ import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.channel import CHANNELS
+from app.tools.schemas import ClinicalRole
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 LocationKey = Literal["main_clinic", "satellite_office"]
@@ -99,6 +102,63 @@ class PolicyConfig(BaseModel):
     constant, because it is wrong everywhere else."""
 
 
+class ClinicalConfig(BaseModel):
+    """Who may hold a Clinical Assistant session, where, and for how long.
+
+    §3.2 defers all three to the clinic: the session interval, the channels a
+    clinical session may be established on, and which licensed directory roles
+    count. Configuration rather than code because *"channel eligibility is
+    clinic configuration, not a runtime decision"* — and because a clinic that
+    does not want the role at all should be able to switch it off without a
+    deploy.
+    """
+
+    enabled: bool = False
+    """Off by default. A capability that reads dosage information should be
+    something a clinic turns on deliberately, not something it inherits."""
+
+    session_minutes: int = Field(default=30, ge=5, le=480)
+    """spec §3.2 — sessions expire and require re-authentication."""
+
+    channels: list[str] = Field(default_factory=list)
+    """Channel names eligible to host a clinical session. A patient-facing
+    channel is never eligible; that part is not configurable and is enforced on
+    the Session model itself."""
+
+    permitted_roles: list[ClinicalRole] = Field(default_factory=list)
+    """Directory roles this clinic accepts for §4.14–§4.16. Narrower than the
+    §4.13 enum on purpose: a clinical pharmacist and a registered nurse do not
+    have the same formulary authority in most real clinics (Decision 5)."""
+
+    @model_validator(mode="after")
+    def _eligible_channels_are_not_patient_facing(self) -> ClinicalConfig:
+        for name in self.channels:
+            if name not in CHANNELS:
+                raise ValueError(f"clinical.channels names unknown channel {name!r}")
+            if CHANNELS[name].capabilities.patient_facing:
+                raise ValueError(
+                    f"clinical.channels names the patient-facing channel {name!r}; "
+                    f"spec §3.2 forbids establishing a clinical session there"
+                )
+        return self
+
+    @model_validator(mode="after")
+    def _enabled_needs_a_channel_and_a_role(self) -> ClinicalConfig:
+        # Enabled with nothing configured would present the capability and then
+        # refuse every call, which reads as a bug rather than as a policy.
+        if self.enabled and not self.channels:
+            raise ValueError("clinical.enabled is true but no channels are eligible")
+        if self.enabled and not self.permitted_roles:
+            raise ValueError("clinical.enabled is true but no roles are permitted")
+        return self
+
+    def allows_channel(self, name: str) -> bool:
+        return self.enabled and name in self.channels
+
+    def allows_role(self, role: ClinicalRole) -> bool:
+        return self.enabled and role in self.permitted_roles
+
+
 class ClinicConfig(BaseModel):
     """The clinic's own configuration, loaded from clinic.yaml."""
 
@@ -110,6 +170,7 @@ class ClinicConfig(BaseModel):
     location_aliases: dict[str, LocationKey] = Field(default_factory=dict)
     providers: list[str]
     policy: PolicyConfig
+    clinical: ClinicalConfig = Field(default_factory=ClinicalConfig)
 
     @field_validator("timezone")
     @classmethod

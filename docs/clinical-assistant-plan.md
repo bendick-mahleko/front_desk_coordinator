@@ -224,7 +224,7 @@ for the voice-masking rules; it turns out to carry this too.
 Each phase ends green — ruff, mypy, the full suite, no network — and is a
 separate commit, matching the r1/r2 pattern. Test counts are estimates.
 
-### C0 — The role axis (½ day, ~20 tests)
+### C0 — The role axis — **DONE** (47 tests)
 
 | File | Change |
 |---|---|
@@ -233,8 +233,35 @@ separate commit, matching the r1/r2 pattern. Test counts are estimates.
 | `app/config.py`, `clinic.yaml` | `clinical.session_minutes`, `clinical.channels`, `clinical.permitted_roles` |
 | `app/knowledge/chunking.py` | `TIERS_BY_ROLE: dict[Role, frozenset[Tier]]` — replaces `PATIENT_FACING_TIERS` as the authority |
 
-Exit: a session's role cannot be mutated; `TIERS_BY_ROLE[Role.PATIENT]` excludes
-`CLINICIAN_ONLY`; a clinical session cannot be constructed on a patient channel.
+Exit (all met): a session's role cannot be mutated; `TIERS_BY_ROLE[Role.PATIENT]`
+excludes `CLINICIAN_ONLY`; a clinical session cannot be constructed on a patient
+channel. Neutering the `__setattr__` guard fails 9 of the 47 tests, so the
+immutability claim is load-bearing rather than incidentally true.
+
+Three things came out differently from the sketch above, each for a reason:
+
+**`clinical_authenticated` is a derived property, not a field.** A stored
+boolean is one clock tick from disagreeing with `expires_at`, and the
+disagreement would grant access rather than deny it.
+
+**§3.2 and §4.13 look contradictory and are not.** §3.2 fixes the role for the
+session's lifetime; §4.13 says expiry *"drops to the system role"*. Both hold
+once `role` (the established principal, immutable) is separated from
+`effective_role` (the capability that is live now). An expired clinical session
+reads as SYSTEM — never as PATIENT, so expiry cannot hand a clinician a
+stranger's scheduling workflows.
+
+**`PATIENT_FACING_TIERS` was not replaced.** It and `TIERS_BY_ROLE` answer
+different questions: which tiers a session may *query* (§1.2 gives a patient
+`patient_safe` **and** `routing_only`) versus which tier's text may be *returned
+to a patient verbatim* (`patient_safe` only). Conflating them is how symptom text
+would end up quoted back to a patient as a diagnosis. Both are kept, and a test
+asserts the first is strictly narrower.
+
+Also named rather than left implicit: `STAFF_TICKET_TIERS`, the §4.12 exemption
+under which a *patient* session retrieves `clinician_only` context for an
+escalation ticket. It looked like a hole in the role map; it is a requirement,
+and §7.3's own last bullet is what makes it consistent.
 
 ### C1 — Authentication (1 day, ~35 tests)
 

@@ -83,6 +83,23 @@ class Priority(StrEnum):
     EMERGENCY = "emergency"
 
 
+class ClinicalRole(StrEnum):
+    """The licensed directory roles §4.13 accepts.
+
+    This is the *claim* a clinician presents and the *assertion* the identity
+    provider returns. It is not the session's principal — that is
+    ``app.store.session.Role``, and only the provider's response may set it
+    (spec §3.2 item 3). An enum here so a role that is not licensed cannot even
+    be named in a call.
+    """
+
+    PHYSICIAN = "physician"
+    NURSE_PRACTITIONER = "nurse_practitioner"
+    PHYSICIAN_ASSISTANT = "physician_assistant"
+    REGISTERED_NURSE = "registered_nurse"
+    CLINICAL_PHARMACIST = "clinical_pharmacist"
+
+
 # --------------------------------------------------------- primitives ---
 
 PHONE_DIGITS = re.compile(r"\D")
