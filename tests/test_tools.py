@@ -205,6 +205,65 @@ def test_a_new_patient_registers_then_books(tools, running, today):
     assert booked["booked"] is True
 
 
+def test_a_new_patient_is_not_offered_a_follow_up(tools, running, session, today):
+    """Reported from a live session: registered as a new patient, asked for an
+    appointment, got "Follow-up Visit".
+
+    Through the whole stack rather than the gate alone, because what matters is
+    that the model receives a denial it can act on rather than an exception.
+    """
+    call(
+        tools,
+        "check_patient_exists",
+        first_name="Ada",
+        last_name="Nwosu",
+        date_of_birth="1990-01-01",
+    )
+    call(
+        tools,
+        "create_new_patient_record",
+        first_name="Ada",
+        last_name="Nwosu",
+        date_of_birth="1990-01-01",
+        phone_number="206-555-0999",
+    )
+
+    refused = call(
+        tools,
+        "search_available_appointments",
+        appointment_type="follow_up",
+        date_range_start=today.isoformat(),
+        date_range_end=(today + timedelta(days=20)).isoformat(),
+        modality="any",
+    )
+
+    assert refused["error"] == "precondition_failed"
+    assert "new_patient" in refused["remedy"]
+
+
+def test_registration_says_what_the_first_visit_is(tools, running):
+    """Read immediately before the model composes its reply, so the correction
+    arrives before the wrong visit type is proposed rather than after."""
+    call(
+        tools,
+        "check_patient_exists",
+        first_name="Ada",
+        last_name="Nwosu",
+        date_of_birth="1990-01-01",
+    )
+    registered = call(
+        tools,
+        "create_new_patient_record",
+        first_name="Ada",
+        last_name="Nwosu",
+        date_of_birth="1990-01-01",
+        phone_number="206-555-0999",
+    )
+
+    assert "new_patient" in registered["next_step"]
+    assert "follow_up" in registered["next_step"]
+
+
 def test_registering_an_existing_patient_escalates_instead(tools, running):
     """spec §4.4 — escalate instead of creating a duplicate record."""
     call(

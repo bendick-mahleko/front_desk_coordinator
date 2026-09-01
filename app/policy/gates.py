@@ -28,7 +28,7 @@ from app.policy import provenance
 from app.policy.messages import DenialCode, Remedy, denial_message, remedy_text
 from app.policy.redaction import redact_args
 from app.store.session import GateLevel, Session, SubjectStatus
-from app.tools.schemas import ARGUMENT_MODELS, MessageType, StrictArgs
+from app.tools.schemas import ARGUMENT_MODELS, AppointmentType, MessageType, StrictArgs
 
 # ---------------------------------------------------------------- verdict ---
 
@@ -123,6 +123,27 @@ def _service_date_confirmed(args: Any, session: Session, clinic: ClinicConfig) -
     return None if service_date in session.booked_service_dates else Remedy.CONFIRM_SERVICE_DATE
 
 
+def _visit_type_possible(args: Any, session: Session, clinic: ClinicConfig) -> Remedy | None:
+    """A follow-up needs an earlier visit to follow up on.
+
+    A patient registered during this conversation has no history with the
+    clinic, so ``follow_up`` names a visit that cannot exist. The model has no
+    particular reason to notice — it picks a visit type from the conversation,
+    and "I'd like an appointment about my blood pressure" reads as a review.
+
+    This is not a clinic policy question and it is not a judgement call, so it
+    is settled here rather than asked of the model. It fires only on REGISTERED,
+    the one status that *proves* there is no history: an unidentified caller may
+    well be an existing patient who has not said so yet, and blocking their
+    search would be worse than the wrong label.
+    """
+    if session.status is not SubjectStatus.REGISTERED:
+        return None
+    if args.appointment_type is not AppointmentType.FOLLOW_UP:
+        return None
+    return Remedy.NEW_PATIENT_FIRST_VISIT
+
+
 def _phone_confirmed(args: Any, session: Session, clinic: ClinicConfig) -> Remedy | None:
     # spec §4.10 — confirm the destination number before sending.
     #
@@ -149,6 +170,7 @@ PRECONDITIONS: dict[str, PreconditionCheck] = {
     "COMBINATION_UNUSED": _combination_unused,
     "TIME_FROM_SEARCH": _time_from_search,
     "SERVICE_DATE_CONFIRMED": _service_date_confirmed,
+    "VISIT_TYPE_POSSIBLE": _visit_type_possible,
     "PHONE_CONFIRMED": _phone_confirmed,
     "KNOWN_LOCATION": _known_location,
 }
@@ -232,13 +254,14 @@ TOOL_POLICY: dict[str, Policy] = {
     "search_available_appointments": Policy(
         GateLevel.OPEN,
         rule="spec§4.5/appointment_search",
+        requires=("VISIT_TYPE_POSSIBLE",),
         enforced_by_schema=("date_range_end must not precede date_range_start (spec §4.5)",),
     ),
     "book_appointment": Policy(
         GateLevel.VERIFIED,
         rule="spec§3/book_an_appointment",
         accepts=(SubjectStatus.REGISTERED,),
-        requires=("TIME_FROM_SEARCH",),
+        requires=("TIME_FROM_SEARCH", "VISIT_TYPE_POSSIBLE"),
         enforced_by_schema=("patient_id, or first and last name (spec §4.6)",),
     ),
     "cancel_appointment": Policy(
@@ -275,6 +298,15 @@ TOOL_POLICY: dict[str, Policy] = {
     "suggest_appointment_type": Policy(
         GateLevel.VERIFIED,
         rule="spec§4.5/appointment_search",
+        # A registered patient reaches this for the same reason they reach
+        # booking: they supplied the complaint themselves, so there is nothing
+        # to disclose back to them. Denying it sent the model to ask a
+        # just-registered patient to verify — against a record created from
+        # their own answers, so no combination of identifiers could ever
+        # succeed. That is a dead end, and it cost the safety layer too: the
+        # red-flag screen lives behind this call, and new patients are exactly
+        # the population most likely to describe a raw symptom.
+        accepts=(SubjectStatus.REGISTERED,),
         redact=("complaint",),
     ),
 }

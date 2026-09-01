@@ -271,3 +271,99 @@ def test_escalation_still_works_with_no_knowledge_base(sim, clinic):
         result = call("escalate_to_staff", reason="complex_symptoms", priority="routine", notes="x")
 
     assert result["escalated"] is True
+
+
+# --------------------------------------------- a newly registered patient ---
+#
+# Reported from a live session: registered as a new patient, asked for an
+# appointment, got one labelled "Follow-up Visit".
+
+
+@pytest.fixture
+def just_registered(sim, clinic, kb):
+    """A session in exactly the state create_new_patient_record leaves behind."""
+    session = Session()
+    session.existence_checked = True
+    session.mark_registered("PT-4900")
+    with (
+        session_scope(session, gate=PolicyGate(clinic)),
+        registry.backend_scope(sim),
+        registry.knowledge_scope(kb),
+    ):
+        yield session
+
+
+def test_a_registered_patient_can_be_routed(just_registered):
+    """They were being told to verify — against a record built from their own
+    answers, so no identifier could ever have matched. A dead end that also put
+    the red-flag screen out of reach for the newest patients."""
+    result = call("suggest_appointment_type", complaint="itchy scaly rash between my toes")
+
+    assert "error" not in result
+
+
+def test_a_chronic_complaint_from_a_new_patient_is_not_a_follow_up(just_registered):
+    """The routing tables map a long-term condition to a review appointment.
+    Right for the patients they were written for, impossible for this one."""
+    result = call(
+        "suggest_appointment_type",
+        complaint="my blood pressure has been high and I need it looked at",
+    )
+
+    assert result["appointment_type"] != "follow_up"
+
+
+def test_the_correction_lands_in_person(just_registered):
+    """A new-patient visit cannot be hosted by a telehealth slot, so a search
+    carrying the corrected type and the old modality would return nothing."""
+    from app.knowledge.routing import Routing
+    from app.tools.knowledge import _first_visit
+    from app.tools.schemas import AppointmentType, Modality
+
+    corrected = _first_visit(
+        Routing(AppointmentType.FOLLOW_UP, Modality.ANY, within_days=14),
+        just_registered,
+    )
+
+    assert corrected.appointment_type is AppointmentType.NEW_PATIENT
+    assert corrected.modality is Modality.IN_PERSON
+    assert corrected.within_days == 14
+
+
+def test_an_established_patient_is_still_routed_to_a_follow_up(running):
+    """The correction is scoped to the one status that proves there is no
+    history. It must not reach everybody else."""
+    from app.knowledge.routing import Routing
+    from app.tools.knowledge import _first_visit
+    from app.tools.schemas import AppointmentType, Modality
+
+    unchanged = _first_visit(
+        Routing(AppointmentType.FOLLOW_UP, Modality.ANY, within_days=14), running
+    )
+
+    assert unchanged.appointment_type is AppointmentType.FOLLOW_UP
+
+
+def test_what_the_tool_recommends_is_what_the_gate_will_accept(just_registered, clinic):
+    """The two layers must not disagree in front of a patient: a recommendation
+    the very next call rejects is worse than no recommendation."""
+    from datetime import date, timedelta
+
+    result = call(
+        "suggest_appointment_type",
+        complaint="my blood pressure has been high and I need it looked at",
+    )
+    start = date.today() + timedelta(days=1)
+
+    verdict = PolicyGate(clinic).evaluate(
+        "search_available_appointments",
+        {
+            "appointment_type": result["appointment_type"],
+            "date_range_start": start.isoformat(),
+            "date_range_end": (start + timedelta(days=result["suggested_within_days"])).isoformat(),
+            "modality": result["modality"],
+        },
+        just_registered,
+    )
+
+    assert verdict.allowed, f"the tool recommended what the gate refuses: {verdict.remedy}"

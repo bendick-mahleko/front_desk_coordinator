@@ -12,19 +12,46 @@ There is no field in the result that could carry one.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any
 
 from app.knowledge.chunking import Tier
 from app.knowledge.red_flags import Severity, severity_for
-from app.knowledge.routing import DEFAULT, combine
-from app.policy.decorator import current_audit
+from app.knowledge.routing import DEFAULT, Routing, combine
+from app.policy.decorator import current_audit, current_session
+from app.store.session import Session, SubjectStatus
 from app.tools.registry import knowledge_base, tool
+from app.tools.schemas import AppointmentType, Modality
 
 DISCLAIMER = (
     "I'm an AI assistant on the front desk, not a clinician. I can help you get "
     "in front of the right person at the right time, but only a doctor can tell "
     "you what is actually going on or what to do about it."
 )
+
+
+def _first_visit(routing: Routing, session: Session) -> Routing:
+    """Correct a follow-up for someone who has never been here.
+
+    The routing tables map a chronic condition to a review appointment, which
+    is right for the patients those tables were written for and wrong for one
+    who registered ten minutes ago. The gate refuses a follow_up for them, so
+    without this the tool would recommend a visit type the very next call
+    rejects — two layers of the same system disagreeing in front of a patient.
+
+    A new-patient visit is in person by definition, so the modality moves with
+    the type; leaving it as "either" would search telehealth slots that cannot
+    host the appointment.
+    """
+    if session.status is not SubjectStatus.REGISTERED:
+        return routing
+    if routing.appointment_type is not AppointmentType.FOLLOW_UP:
+        return routing
+    return replace(
+        routing,
+        appointment_type=AppointmentType.NEW_PATIENT,
+        modality=Modality.IN_PERSON,
+    )
 
 
 @tool("suggest_appointment_type")
@@ -69,6 +96,8 @@ def suggest_appointment_type(complaint: str) -> Any:
     else:
         routing = combine([hit.disease for hit in hits])
         confidence = "high" if hits[0].score >= 0.55 else "low"
+
+    routing = _first_visit(routing, current_session())
 
     payload: dict[str, Any] = {
         **routing.as_payload(),

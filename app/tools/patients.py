@@ -237,6 +237,9 @@ def create_new_patient_record(
         "registered": True,
         "next_step": (
             "Give the patient their registration result and what happens next. "
-            "They may now book an appointment."
+            "They may now book an appointment. Their first visit is a new_patient "
+            "appointment, which is in person — or a sick_visit if they have described "
+            "something acute. It cannot be a follow_up: there is nothing yet to follow "
+            "up on."
         ),
     }

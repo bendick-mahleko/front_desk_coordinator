@@ -57,6 +57,7 @@ class Remedy(StrEnum):
     CONFIRM_SERVICE_DATE = "confirm_service_date"
     CONFIRM_PHONE_NUMBER = "confirm_phone_number"
     UNKNOWN_LOCATION = "unknown_location"
+    NEW_PATIENT_FIRST_VISIT = "new_patient_first_visit"
     FIX_ARGUMENTS = "fix_arguments"
     DISAMBIGUATE = "disambiguate"
     WRONG_SUBJECT = "wrong_subject"
@@ -106,6 +107,12 @@ REMEDIES: dict[Remedy, str] = {
     Remedy.UNKNOWN_LOCATION: (
         "That location is not configured. Offer the clinic locations that are, or "
         "escalate to staff."
+    ),
+    Remedy.NEW_PATIENT_FIRST_VISIT: (
+        "This patient registered during this conversation, so they have no earlier "
+        "visit to follow up on. Their first appointment is a new_patient visit, or a "
+        "sick_visit if they have described something acute. Do not ask the patient "
+        "which they want — choose, tell them which you are booking, and continue."
     ),
     Remedy.FIX_ARGUMENTS: "Correct the arguments and call the function again.",
     Remedy.WRONG_SUBJECT: (

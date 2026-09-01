@@ -639,3 +639,89 @@ def test_future_service_dates_outside_the_ledger_are_refused(gate):
     )
     assert not verdict.allowed
     assert verdict.remedy_key is Remedy.CONFIRM_SERVICE_DATE
+
+
+# ------------------------------------------------- a new patient's first visit ---
+#
+# Reported from a live session: registered as a new patient, asked for an
+# appointment, got one labelled "Follow-up Visit". Nothing in the system had an
+# opinion about visit types, so whatever the model picked stood.
+
+
+def test_a_newly_registered_patient_cannot_search_for_a_follow_up(gate):
+    """The reported defect. There is no earlier visit to follow up on."""
+    verdict = gate.evaluate(
+        "search_available_appointments",
+        VALID_ARGS["search_available_appointments"],  # appointment_type: follow_up
+        satisfy_preconditions(registered(), "search_available_appointments"),
+    )
+
+    assert not verdict.allowed
+    assert verdict.code is DenialCode.PRECONDITION_FAILED
+    assert verdict.remedy_key is Remedy.NEW_PATIENT_FIRST_VISIT
+
+
+def test_a_newly_registered_patient_cannot_book_a_follow_up(gate):
+    """Blocked at booking too — the search is not the only way in."""
+    session = satisfy_preconditions(registered(), "book_appointment")
+    args = {
+        **VALID_ARGS["book_appointment"],
+        "patient_id": "PT-4900",
+        "appointment_type": "follow_up",
+    }
+
+    verdict = gate.evaluate("book_appointment", args, session)
+
+    assert not verdict.allowed
+    assert verdict.remedy_key is Remedy.NEW_PATIENT_FIRST_VISIT
+
+
+@pytest.mark.parametrize("visit_type", ["new_patient", "sick_visit", "wellness", "telehealth"])
+def test_every_other_visit_type_is_still_open_to_a_new_patient(gate, visit_type):
+    """The guard removes one impossible option, not the patient's choices."""
+    session = satisfy_preconditions(registered(), "search_available_appointments")
+    args = {**VALID_ARGS["search_available_appointments"], "appointment_type": visit_type}
+
+    assert gate.evaluate("search_available_appointments", args, session).allowed
+
+
+def test_an_established_patient_may_still_book_a_follow_up(gate):
+    """The whole point of the visit type. A verified patient has history."""
+    session = satisfy_preconditions(verified(), "search_available_appointments")
+
+    assert gate.evaluate(
+        "search_available_appointments", VALID_ARGS["search_available_appointments"], session
+    ).allowed
+
+
+def test_an_anonymous_caller_may_still_search_for_a_follow_up(gate):
+    """Someone who has not identified themselves may well be an established
+    patient. Blocking their search would be a worse error than a wrong label."""
+    session = satisfy_preconditions(anonymous(), "search_available_appointments")
+
+    assert gate.evaluate(
+        "search_available_appointments", VALID_ARGS["search_available_appointments"], session
+    ).allowed
+
+
+def test_the_remedy_tells_the_model_what_to_do_instead(gate):
+    """A denial the model cannot act on costs a turn and confuses the patient."""
+    from app.policy.messages import remedy_text
+
+    text = remedy_text(Remedy.NEW_PATIENT_FIRST_VISIT)
+
+    assert "new_patient" in text
+    assert "follow up" in text
+
+
+def test_a_registered_patient_may_be_routed(gate):
+    """They can already book, and the complaint is their own words coming back
+    to them. Denying it sent the model to ask a just-registered patient to
+    verify against a record built from their own answers — unreachable."""
+    verdict = gate.evaluate(
+        "suggest_appointment_type",
+        VALID_ARGS["suggest_appointment_type"],
+        satisfy_preconditions(registered(), "suggest_appointment_type"),
+    )
+
+    assert verdict.allowed, verdict.remedy
