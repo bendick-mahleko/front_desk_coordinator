@@ -91,6 +91,20 @@ def _called(records: Sequence[AuditRecord]) -> list[str]:
     return [r.function or "?" for r in _gate_records(records)]
 
 
+def _allowed(records: Sequence[AuditRecord]) -> list[str]:
+    """Functions the gate actually let through.
+
+    ``_called`` includes refusals, because the ordering assertions want to see
+    every attempt. The negative assertions want only the ones that succeeded —
+    see Scenario.forbid_tools.
+    """
+    return [
+        r.function
+        for r in _gate_records(records)
+        if r.function and (r.gate or {}).get("decision") == "allow"
+    ]
+
+
 def _is_subsequence(expected: Sequence[str], actual: Sequence[str]) -> str | None:
     """Ordering claim: every expected call appears, in order.
 
@@ -120,6 +134,11 @@ def check(scenario: Scenario, records: list[AuditRecord], replies: list[str]) ->
     for forbidden in scenario.forbid_tools:
         if forbidden in calls:
             failures.append(Failure("forbid_tools", f"{forbidden!r} was called"))
+
+    allowed = _allowed(records)
+    for forbidden in scenario.forbid_tool_success:
+        if forbidden in allowed:
+            failures.append(Failure("forbid_tool_success", f"{forbidden!r} succeeded"))
 
     for expectation in scenario.expect_gate:
         matching = [

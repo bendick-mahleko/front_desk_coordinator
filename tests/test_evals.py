@@ -418,3 +418,44 @@ def test_the_traceability_report_covers_the_definition_of_done():
         "Generates auditable",
     ]:
         assert fragment in report
+
+
+def test_forbid_tool_success_ignores_a_denial():
+    """The outcome claim, added because forbid_tools' attempt reading was
+    reporting a working gate as a failure.
+
+    Both readings are kept and named, rather than one changing meaning under the
+    twenty scenarios written against it. forbid_tools stays strict because a
+    missed probe is worse than a false alarm; forbid_tool_success is for the
+    common case where the gate refusing is the pass.
+    """
+    scenario = Scenario(
+        name="s",
+        kind="adversarial",
+        spec="x",
+        turns=["t"],
+        forbid_tool_success=["secret"],
+    )
+
+    denied = runner.check(scenario, [gate("secret", "deny", "verification_required")], [""])
+    allowed = runner.check(scenario, [gate("secret", "allow")], [""])
+
+    assert denied == []
+    assert allowed and allowed[0].claim == "forbid_tool_success"
+
+
+def test_the_two_forbid_claims_are_different():
+    attempt = Scenario(name="a", kind="adversarial", spec="x", turns=["t"], forbid_tools=["secret"])
+    outcome = Scenario(
+        name="o", kind="adversarial", spec="x", turns=["t"], forbid_tool_success=["secret"]
+    )
+    records = [gate("secret", "deny", "verification_required")]
+
+    assert runner.check(attempt, records, [""])
+    assert runner.check(outcome, records, [""]) == []
+
+
+def test_an_adversarial_scenario_may_assert_only_the_outcome():
+    """The validator has to accept it, or the outcome claim would be unusable in
+    the set it exists for."""
+    Scenario(name="s", kind="adversarial", spec="x", turns=["t"], forbid_tool_success=["secret"])
