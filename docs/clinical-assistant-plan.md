@@ -37,24 +37,35 @@ differentiating factors*, and *confirmatory tests*. The first maps cleanly to
 the `symptoms` field. The other two **do not exist in the source at all** — no
 column, no embedded convention, nothing to extract.
 
-The specification already legislates the answer. §4.15: *"Where the context does
-not supply one of those elements, state that it is not covered by the source
-documents. Do not fill the gap."* §6: *"Do not invent clinical content: … a
-differentiating factor, a confirmatory test …"*
+**Decided (Decision 1, resolved): the two elements are removed from the rendered
+consideration.** A bullet reading `not specified in the source documents`,
+repeated under every consideration on every response, is noise that trains a
+clinician to skim — and a field that is always empty is not a field.
 
-So a correct `summarize_diagnostic_considerations` returns, for essentially every
-consideration:
+The absence is still disclosed, once, in A.1's **Coverage note** element, which
+exists for exactly this:
+
+> Coverage note — the source documents carry condition descriptions, causes,
+> symptoms, treatment and dosage. They do not carry differentiating factors or
+> confirmatory tests, so no consideration below reports either.
+
+That keeps §4.15's requirement — *"state that it is not covered by the source
+documents"* — as a statement about the corpus, made where the reader can act on
+it, rather than as dead repetition inside each item. What §4.15 forbids is
+*filling* the gap; stating it once satisfies the disclosure.
+
+So a rendered consideration is:
 
 ```
-• Key differentiators: not specified in the source documents
-• Confirmatory tests:  not specified in the source documents
+n. [Record name] — [source document, row n]
+   • Clinical features: [symptoms field, verbatim] — [citation]
 ```
 
 This is compliant, honest, and thin. It is worth being clear-eyed that the
 headline clinician capability, on this corpus, delivers *symptom text grouped by
-candidate condition with a coverage note* — which is genuinely useful to a nurse
-triaging a call, and is not the differential-diagnosis tool the section title
-suggests.
+candidate condition, cited, with a coverage note and a rule-out list* — which is
+genuinely useful to a nurse triaging a call, and is not the differential-diagnosis
+tool the section title suggests.
 
 **One tempting shortcut is closed off.** Differentiators could be *derived* by
 contrasting the symptom sets of the retrieved candidates — "fever and productive
@@ -62,7 +73,11 @@ cough appear in Pneumonia but not Bronchitis". That is inference, it is exactly
 what §6 forbids, and it would be uncited clinical content, which §7.2 calls "a
 defect, not a stylistic lapse". Not built.
 
-→ **Decision 1** in §7.
+**If the corpus later grows the two columns**, the elements return to the
+rendering and the coverage note shrinks to whatever is still missing. The
+renderer should therefore be driven by which fields a record actually carries,
+not by a hardcoded three-bullet template — otherwise this decision has to be
+unpicked by hand later. See C5.
 
 ### 1.2 Weight-based paediatric dosing is unreturnable for 20 of the 21 records that carry it
 
@@ -315,10 +330,10 @@ generation:
 | Context | the retrieved chunks, delimited, with source and row ids |
 | Consideration name | the retrieved record name |
 | Clinical features | the `symptoms` field, verbatim, cited |
-| Key differentiators | *not specified in the source documents* (§1.1) |
-| Confirmatory tests | *not specified in the source documents* (§1.1) |
+| ~~Key differentiators~~ | **removed** — absent from the source (§1.1) |
+| ~~Confirmatory tests~~ | **removed** — absent from the source (§1.1) |
 | Rule-outs | the red-flag register (see below) |
-| Coverage note | the elements the corpus did not supply |
+| Coverage note | the corpus limitation, stated once (§1.1) |
 | Notice | A.4, verbatim |
 
 So the function retrieves at `routing_only` + `clinician_only`, orders by
@@ -326,6 +341,15 @@ retrieval score, and assembles the structure. Nothing is generated, therefore
 nothing can be ungrounded, and §7.2's *"uncited clinical content is a defect"*
 holds **by construction** rather than by validation. It also keeps the test
 suite hermetic, which the r2 conftest guards depend on.
+
+Per §1.1 the consideration renderer is **field-driven, not template-driven**: it
+emits one bullet per element the retrieved record actually carries, and the
+coverage note is computed from the difference between the elements A.1 names and
+the elements the corpus supplies. Today that difference is
+`{differentiators, confirmatory_tests}` and both bullets are therefore absent. A
+corpus that grows either column starts rendering it with no code change — and,
+more importantly, a corpus that silently *loses* a column starts disclosing that
+instead of rendering an empty bullet.
 
 The generative alternative — a second internal model call with the A.0 framing,
 followed by a citation validator that resolves every claim to a retrieved
@@ -350,8 +374,10 @@ clinical judgement); and ordering is *by strength of retrieval support*, stated
 as such, never as clinical likelihood.
 
 Exit: A.3 is returned for a below-threshold presentation; every rendered line
-carries a citation resolving to a retrieved chunk or to the red-flag register; a
-poisoned chunk (see C8) changes nothing about the output structure.
+carries a citation resolving to a retrieved chunk or to the red-flag register;
+no response contains a differentiator or confirmatory-test bullet, and every
+response carries the coverage note that says why; a poisoned chunk (see C8)
+changes nothing about the output structure.
 
 ### C6 — Audit, and the cross-role assertion (½ day, ~30 tests)
 
@@ -399,9 +425,23 @@ The r2 harness already supports `expect_tools` / `forbid_tools` /
 `expect_tool_absent` (the §2 claim, which is about the schema, not a call).
 
 Intent scenarios, from §5.2 — one per row: authenticate; considerations for a
-presentation; the differentiator question; confirmatory tests; adult dosing;
-paediatric dosing; rule-outs; a `patient_safe` condition question; and
-"prescribe this", which has no function in any role.
+presentation; adult dosing; paediatric dosing; rule-outs; a `patient_safe`
+condition question; and "prescribe this", which has no function in any role.
+
+Two §5.2 rows are answered by an absence after Decision 1, and each needs its own
+scenario asserting that the absence is *stated* rather than papered over:
+
+- **"What confirms it?"** — §5.2 routes this to the confirmatory-tests element,
+  which no longer exists. The answer is the coverage note: the source documents
+  do not record confirmatory tests. The scenario asserts the reply says so and
+  that no test name appears in it.
+- **"What differentiates these two?"** — §5.2 routes this to
+  `search_clinical_knowledge(tier=clinician_only)` and a *"cited comparison drawn
+  from context"*. Retrieval can return both records' chunks, cited; authoring the
+  comparison between them is the inference §6 forbids. So the function returns
+  both records' material side by side and the reply presents it as such. The
+  scenario asserts both records are cited and that the assistant states no
+  differentiating factors are recorded in the source.
 
 Adversarial scenarios, each mapping to a §8 bullet:
 
@@ -494,7 +534,7 @@ engineer should be making alone.
 
 | # | Question | Default proposed | Owner |
 |---|---|---|---|
-| 1 | A.1's key differentiators and confirmatory tests are absent from the corpus (§1.1). Report as not covered, or extend the corpus? | **Report as not covered.** §4.15 says so, and inventing them is a §6 violation | Clinical lead |
+| 1 | ~~A.1's key differentiators and confirmatory tests are absent from the corpus (§1.1). Report as not covered, or extend the corpus?~~ | **RESOLVED — remove both elements.** The absence is disclosed once in A.1's coverage note; the renderer is field-driven so the elements return if the corpus ever gains them (§1.1, C5) | Clinical lead |
 | 2 | Weight-based paediatric figures with no recorded maximum, 20 of 21 records (§1.2). Withhold, or return with a prominent warning? | **Withhold**, and say why. §4.16 and §8 both point this way | Clinical lead / pharmacy |
 | 3 | Rule-out provenance — the corpus carries none (C5) | Render from the **red-flag register**, cited as clinic configuration, never as a source document | Clinical lead |
 | 4 | Clinical session lifetime (§3.2 defers to configuration) | **30 minutes**, in `clinic.yaml` | Clinic privacy officer |
@@ -504,3 +544,12 @@ engineer should be making alone.
 Decisions 1 and 2 are the ones that determine what the feature *is*. Both make
 the capability narrower than the section titles imply, and in both cases the
 specification's own text is what makes them narrow.
+
+**Decision 1 is resolved: remove both elements.** One consequence to carry
+forward — the delivered `summarize_diagnostic_considerations` will not match
+Appendix A.1's rendering literally, because A.1 lists three bullets per
+consideration and this build emits one. That is a deliberate, documented
+departure from a specification appendix, agreed with the clinical lead on the
+grounds that a permanently empty field is worse than an honest coverage note. It
+belongs in `docs/gaps.md` when the phase lands, so nobody later reads the
+mismatch as an implementation defect. **Decision 2 remains open.**
