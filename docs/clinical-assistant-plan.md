@@ -79,7 +79,7 @@ renderer should therefore be driven by which fields a record actually carries,
 not by a hardcoded three-bullet template — otherwise this decision has to be
 unpicked by hand later. See C5.
 
-### 1.2 Weight-based paediatric dosing is unreturnable for 20 of the 21 records that carry it
+### 1.2 Only 1 of the 21 weight-based paediatric records has a maximum daily dose
 
 §4.16: *"A weight-based figure must never appear without its maximum."* §8, in
 the definition of done: *"Demonstrates that weight-based paediatric dosing is
@@ -96,21 +96,43 @@ adjusted to INR of 2-3.
 
 Dosing basis: recorded ("based on weight"). Maximum daily dose: absent.
 
-Read literally — and this is a section where literal is the only safe reading —
-`get_dosage_information(cohort="paediatric")` must **withhold the figure** for 20
-of 21 records, returning the reason rather than the dose. A.2's
-`Maximum daily dose: [as recorded, or "not recorded"]` appears to permit
-rendering "not recorded" beside the figure, but §4.16's prohibition and §8's
-demonstration requirement are the stronger statements, and the conflict resolves
-toward withholding.
+**The specification contradicts itself here.** §4.16's prose says a weight-based
+figure must never appear without its maximum. Appendix A.2's rendering —
+the specification's own response contract, and by its preamble *"enforced by the
+function result rather than left to the model's discretion"* — says:
 
-The consequence is stark and should be stated to whoever signed the section off:
-**the paediatric dosing capability abstains on 95% of the records that have
-paediatric dosing at all.** That is not a bug to be worked around. It is the
-guard doing precisely what §8 asks to be demonstrated, on a corpus that was
-never a formulary.
+```
+• Maximum daily dose: [as recorded, or "not recorded"]
+```
 
-→ **Decision 2** in §7.
+A.2 therefore anticipates exactly this corpus. One clause forbids the figure
+without a maximum; the other supplies the wording for having no maximum.
+
+**Decided (Decision 2, resolved): return the figure, warn prominently.** This is
+the A.2 reading — the contract the appendix specifies — rather than a departure
+from the specification. The maximum field is never omitted: it carries the
+recorded value where there is one, and the literal `not recorded in the source
+documents` where there is not, alongside the dosing basis, which *is* recorded in
+every one of the 21 records.
+
+Two consequences to design against rather than discover.
+
+**§8's demonstration bullet needs restating.** As written it asks to demonstrate
+that weight-based paediatric dosing is *"never returned without its dosing basis
+and maximum daily dose"*. Under this decision the demonstrable property becomes:
+never returned without its dosing basis, without an explicit maximum-daily-dose
+field, and — where that field is `not recorded` — without the escalated warning
+of C4. That is still a total, mechanically testable claim over all 65 records,
+and C4's property test asserts it. It is *not* the sentence in §8, and the
+difference is documented rather than quietly reinterpreted.
+
+**Warning fatigue is the live risk.** 20 of 21 weight-based paediatric responses
+will carry the notice. A warning that appears on 95% of responses is furniture,
+and the one case that matters — a genuine recorded maximum, or its absence in a
+high-risk drug — disappears into it. So the warning cannot be the same notice as
+the routine paediatric formulary check that §4.16 already requires on every
+paediatric weight-based response. Two distinct, differently-worded notices, one
+structural field each; see C4.
 
 ### 1.3 The good news: the cohort split is deterministic
 
@@ -305,17 +327,38 @@ Rules implemented as code, each with its own test:
 - `medication_name` searches the `clinician_only` tier; no hit → no result.
 - "Not applicable" → *"no dosing recorded in the source documents for this
   cohort"*, and never the other cohort's figure.
-- Weight-based + no recorded maximum → **withhold the figure**, state why
-  (see Decision 2).
+- Weight-based + no recorded maximum → **return the figure**, with
+  `maximum_daily_dose = "not recorded in the source documents"` and the escalated
+  notice below. The field is never omitted and never inferred (Decision 2).
 - `cohort="paediatric"` with a weight-based regimen → the response carries the
-  formulary-verification requirement.
+  formulary-verification requirement of §4.16.
+
+Two notices, kept structurally distinct so neither hides the other (§1.2):
+
+| Field | When | Purpose |
+|---|---|---|
+| `verification_notice` | every paediatric weight-based response | §4.16's standing formulary check — routine, expected, always present |
+| `incomplete_source_notice` | only when the maximum is `not recorded` | the corpus does not bound this regimen; the ceiling must come from the formulary before use |
+
+They are separate fields rather than one concatenated string so that the UI can
+render the second as a blocking banner while the first is a footnote, and so a
+test can assert each independently. If they were one notice, the 20-of-21 case
+would train the reader to skip the sentence that matters.
 - Appendix A.2 rendering assembled by the function, not the model.
 - A.4 standing notice appended.
 - No patient-specific calculation; no prescription-shaped output.
 
 Exit: a property test over all 65 records asserts that no returned payload ever
-contains a `mg/kg` figure without both a dosing basis and a maximum — the §8
-demonstration, run on the whole corpus rather than a sample.
+contains a `mg/kg` or `units/kg` figure without **all three** of a dosing basis, a
+maximum-daily-dose field, and — where that field reads `not recorded` — the
+`incomplete_source_notice`. Run over the whole corpus rather than a sample, and
+it is the restated §8 demonstration of §1.2. A second test asserts the count: 21
+weight-based paediatric records, 20 of them carrying the incomplete-source
+notice, so a corpus change that silently alters that ratio fails the build rather
+than passing quietly.
+
+The audit record carries whether the no-maximum path was taken, so a reviewer can
+count how often the warning fired instead of trusting that it did.
 
 ### C5 — `summarize_diagnostic_considerations` (1 day, ~40 tests)
 
@@ -455,7 +498,7 @@ Adversarial scenarios, each mapping to a §8 bullet:
 | Expired session continues asking | `session_expired`, not a partial answer (§6) |
 | **Injected instruction inside a retrieved chunk** | ignored (§7.2) — needs a poisoned fixture chunk, since the vendored corpus is clean |
 | Clinician pivots to "book this for the patient" | roles are not mixed (§7.3); session must re-establish |
-| Weight-based paediatric request across all 21 records | no figure without basis + maximum (§8) |
+| Weight-based paediatric request across all 21 records | no figure without a dosing basis, a maximum field, and the incomplete-source notice where the maximum is absent (§8 as restated in §1.2) |
 | Below-threshold presentation | A.3, not a weak-match summary |
 
 The injection probe is worth building even though the corpus is trusted: it
@@ -518,6 +561,13 @@ built on one, because the clinician will act on it. The `min_score` floor and th
 A.3 no-match path are the mitigations, and C5's exit criterion exercises A.3
 deliberately.
 
+**The dosing warning will be ignored.** Not a hypothesis — 20 of the 21
+weight-based paediatric records trigger it, so it is the normal case rather than
+the exception, and normal cases stop being read. C4 splits it from the routine
+formulary notice so at least the two are distinguishable, and the audit record
+counts how often it fires. Neither makes it salient. This is the one risk in r3
+that engineering can measure but not solve; see the closing note of §7.
+
 **Two authorization axes is more surface than one.** The existing gate is
 exhaustively tested cell by cell (`tests/test_gates.py`, the §3 table in both
 directions). r3 turns that table into a cube. C2's test budget assumes the same
@@ -535,7 +585,7 @@ engineer should be making alone.
 | # | Question | Default proposed | Owner |
 |---|---|---|---|
 | 1 | ~~A.1's key differentiators and confirmatory tests are absent from the corpus (§1.1). Report as not covered, or extend the corpus?~~ | **RESOLVED — remove both elements.** The absence is disclosed once in A.1's coverage note; the renderer is field-driven so the elements return if the corpus ever gains them (§1.1, C5) | Clinical lead |
-| 2 | Weight-based paediatric figures with no recorded maximum, 20 of 21 records (§1.2). Withhold, or return with a prominent warning? | **Withhold**, and say why. §4.16 and §8 both point this way | Clinical lead / pharmacy |
+| 2 | ~~Weight-based paediatric figures with no recorded maximum, 20 of 21 records (§1.2). Withhold, or return with a prominent warning?~~ | **RESOLVED — return with a warning.** The A.2 reading; two structurally distinct notices so the 20-of-21 case does not bury the routine one; §8's bullet restated and the restatement tested (§1.2, C4) | Clinical lead / pharmacy |
 | 3 | Rule-out provenance — the corpus carries none (C5) | Render from the **red-flag register**, cited as clinic configuration, never as a source document | Clinical lead |
 | 4 | Clinical session lifetime (§3.2 defers to configuration) | **30 minutes**, in `clinic.yaml` | Clinic privacy officer |
 | 5 | Which directory roles are licensed for §4.16 dosing? All five of §4.13, or a narrower set? | All five, configurable — a clinical pharmacist and a registered nurse have different formulary authority in most real clinics | Compliance |
@@ -545,11 +595,29 @@ Decisions 1 and 2 are the ones that determine what the feature *is*. Both make
 the capability narrower than the section titles imply, and in both cases the
 specification's own text is what makes them narrow.
 
-**Decision 1 is resolved: remove both elements.** One consequence to carry
-forward — the delivered `summarize_diagnostic_considerations` will not match
-Appendix A.1's rendering literally, because A.1 lists three bullets per
-consideration and this build emits one. That is a deliberate, documented
-departure from a specification appendix, agreed with the clinical lead on the
-grounds that a permanently empty field is worse than an honest coverage note. It
-belongs in `docs/gaps.md` when the phase lands, so nobody later reads the
-mismatch as an implementation defect. **Decision 2 remains open.**
+**Both are now resolved, and both leave a documented divergence to carry into
+`docs/gaps.md` when the phases land — so that a later reader does not diagnose
+either as an implementation defect.**
+
+**Decision 1 — remove the two elements.** The delivered
+`summarize_diagnostic_considerations` will not match Appendix A.1's rendering
+literally: A.1 lists three bullets per consideration and this build emits one.
+Agreed on the grounds that a permanently empty field is worse than an honest
+coverage note.
+
+**Decision 2 — return the figure with a warning.** This one is not a departure
+from the appendix but a choice *between* two clauses that disagree: A.2's
+`[as recorded, or "not recorded"]` against §4.16's prose prohibition. The
+appendix wins, on the stated grounds that it is the specification's own response
+contract. What does change is §8: its demonstration bullet cannot be satisfied as
+worded, and C4 tests the restated property instead. That restatement is the
+substantive entry for `docs/gaps.md`, not the clause conflict.
+
+The residual risk is behavioural rather than mechanical. The guard will hold —
+the field is always present and the notice always fires — but it fires on 95% of
+weight-based paediatric responses, and no amount of test coverage makes a
+clinician read a sentence they have seen twenty times. The two-notice split in C4
+is a mitigation, not a fix. **The fix is a maximum-daily-dose column sourced from
+a formulary**, which is clinical authoring rather than engineering, and which
+would let §4.16 be honoured as written. It should be on the record as the thing
+that would actually close this.
