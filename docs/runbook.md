@@ -103,14 +103,33 @@ died.** `uv run streamlit` spawns a chain of processes, so killing whatever
 `netstat` reports as holding the port often leaves the app running. Three
 generations of stale instances accumulated across one session that way, each
 serving code from hours earlier, which looks exactly like a change having no
-effect:
+effect.
+
+Search by **port**, not by command line:
 
 ```
-powershell -Command "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*streamlit*run*ui/*' } | Select ProcessId, CreationDate"
+powershell -Command "$ports = 8000,8501,8502; $owners = @(Get-NetTCPConnection -State Listen -EA 0 | ? { $_.LocalPort -in $ports } | % { $_.OwningProcess } | Select -Unique); $kin = @(Get-CimInstance Win32_Process | ? { $_.ParentProcessId -in $owners } | % { $_.ProcessId }); $found = @($owners + $kin) | Select -Unique; if (-not $found) { 'nothing holds 8000/8501/8502' } else { $found | % { $p = Get-CimInstance Win32_Process -Filter \"ProcessId = $_\"; if ($p) { \"$_  $($p.CommandLine)\" } else { \"$_  <dead: a child inherited its socket>\" } } }"
 ```
 
 If that lists anything after you meant to stop it, kill the tree with
 `taskkill /F /T /PID <id>`.
+
+Two traps, both hit while cleaning up before a submission, and the reason the
+check above searches by port:
+
+**A command-line pattern misses orphaned workers.** A uvicorn parent died and
+left a `multiprocessing.spawn` child holding the listening socket. Its command
+line is `python -c "from multiprocessing.spawn import spawn_main;
+spawn_main(parent_pid=..., ...)"` — no `uvicorn` in it, no `streamlit`, nothing
+any sensible pattern would match. Meanwhile `netstat` still attributed the socket
+to the *dead* parent's pid, so the port looked busy and owned by a process that
+did not exist, while the app went on answering requests. Following
+`ParentProcessId` from the listener's owner is what finds it.
+
+**A pattern broad enough to match the apps also matches the shell running the
+sweep.** `-match 'streamlit|uvicorn'` matched the PowerShell process whose own
+command line contained those words, which killed the sweep mid-execution. Filter
+on `$_.ProcessId -ne $PID` if you match on command lines at all.
 
 ## If the UI looks wrong
 
