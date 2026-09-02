@@ -195,6 +195,7 @@ ui/
   diagrams.py      Static inline SVG — the gate pipeline, tiers, the ledger
   app.py           Patient chat, the ladder, the provenance ledger
   clinical.py      The staff surface (separate app, own port)
+  clinical_render.py  The clinical payload renderers — pure, so testable
   trace.py         The policy-gate panel — the demo surface
   outbox.py        Sent messages and delivery status
   queue.py         Staff escalations
@@ -204,7 +205,7 @@ evals/
   runner.py        Drives scenarios, asserts on the audit log
   judge.py         LLM judge, for claims that are genuinely about wording
   scenarios/       24 YAML scenarios
-tests/             1175 tests, no network, no model
+tests/             1181 tests, no network, no model
   replay.py        Recorded-transcript backend, so tests need no API
 clinic.yaml        Clinic policy and configuration
 ```

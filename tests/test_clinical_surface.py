@@ -407,8 +407,16 @@ def test_the_settings_panel_reports_the_clinical_block(client, monkeypatch):
     assert "not configurable" in rendered or "never eligible" in rendered
 
 
-def test_the_settings_panel_survives_a_config_without_the_block():
-    """An older service, or one with the role off."""
+def test_the_settings_panel_survives_a_config_without_the_block(monkeypatch):
+    """An older service, or one with the role off.
+
+    ``monkeypatch.setitem`` rather than assigning ``sys.modules`` directly: this
+    test used to leak the fake module for the rest of the session, so anything
+    later that wanted the *real* Streamlit — the icon validator two tests down —
+    got ``'streamlit' is not a package`` instead. A mocked module that outlives
+    its test makes every later test in the process unreliable, and the failure
+    surfaces somewhere it was not caused.
+    """
     import sys
     import types
     from unittest.mock import MagicMock
@@ -421,7 +429,7 @@ def test_the_settings_panel_survives_a_config_without_the_block():
             MagicMock() for _ in (spec if isinstance(spec, list) else range(spec))
         )
     )
-    sys.modules["streamlit"] = fake
+    monkeypatch.setitem(sys.modules, "streamlit", fake)
 
     import importlib
 
@@ -429,6 +437,9 @@ def test_the_settings_panel_survives_a_config_without_the_block():
 
     importlib.reload(settings)
     settings.render({"service": {}, "language_model": {}, "knowledge_base": {}})
+    # Leave the module as the rest of the suite expects to find it.
+    monkeypatch.undo()
+    importlib.reload(settings)
 
 
 # ------------------------------------------------------------ doc drift ---
@@ -608,3 +619,55 @@ def test_every_styled_class_is_actually_used():
     assert styled, "no design classes found"
     for classname in sorted(styled):
         assert classname in usage, f"{classname} is styled but never applied"
+
+
+# ----------------------------------------------- Streamlit's own API rules ---
+
+
+def test_every_icon_argument_is_an_emoji_streamlit_accepts():
+    """A crash I shipped, as a test.
+
+    Removing emoji from the verdicts was right; passing the replacement marks to
+    `icon=` was not. Streamlit validates that argument as a genuine emoji and
+    raises `StreamlitAPIException` on anything else, so `icon="○"` took the page
+    down the moment the sidebar rendered with a session.
+
+    Nothing caught it. The UI tests mock Streamlit with MagicMock, which accepts
+    any argument by construction, so they cannot see API misuse — and the smoke
+    check only proved the server answered on `/`, which does not exercise a
+    sidebar that has a session in it.
+
+    So this validates against Streamlit's own function rather than a regex of my
+    own: the rule cannot drift from the library's, and a version that widens or
+    narrows what it accepts moves this test with it.
+    """
+    import re
+    from pathlib import Path
+
+    from streamlit.string_util import validate_emoji
+
+    ui = Path(__file__).resolve().parent.parent / "ui"
+    offenders: list[str] = []
+
+    for path in sorted(ui.glob("*.py")):
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            for match in re.finditer(r'\bicon="([^"]*)"', line):
+                try:
+                    validate_emoji(match.group(1))
+                except Exception:  # noqa: BLE001 - any rejection is a failure
+                    offenders.append(f"{path.name}:{number}: icon={match.group(1)!r}")
+
+    assert offenders == [], "Streamlit will raise on these icons:\n" + "\n".join(offenders)
+
+
+def test_page_icons_are_valid_too():
+    """`page_icon` takes the same validation path."""
+    import re
+    from pathlib import Path
+
+    from streamlit.string_util import validate_emoji
+
+    ui = Path(__file__).resolve().parent.parent / "ui"
+    for path in sorted(ui.glob("*.py")):
+        for match in re.finditer(r'page_icon="([^"]*)"', path.read_text(encoding="utf-8")):
+            validate_emoji(match.group(1))

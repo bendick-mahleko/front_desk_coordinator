@@ -236,3 +236,169 @@ def test_the_support_bar_survives_any_score(score):
     """Scores come from cosine similarity, which is bounded in theory and worth
     clamping in practice."""
     assert "width:" in design.support_bar(score)
+
+
+# ------------------------------------- the payload renderers, run for real ---
+
+
+class StrictStreamlit:
+    """A Streamlit stand-in that enforces the API rules MagicMock ignores.
+
+    The `icon="○"` crash got through because the UI tests mock Streamlit with
+    MagicMock, which accepts any argument by construction. A mock that says yes
+    to everything cannot catch API misuse — it can only catch a missing call.
+
+    So this one validates `icon=` with Streamlit's own validator and records what
+    it was told, which gives the payload renderers real runtime coverage rather
+    than a source scan.
+    """
+
+    def __init__(self) -> None:
+        self.markdown_calls: list[str] = []
+        self.alerts: list[tuple[str, str]] = []
+        self.captions: list[str] = []
+
+    def _alert(self, kind: str):  # noqa: ANN202
+        def call(body: str, icon: str | None = None, **_: object) -> None:
+            if icon is not None:
+                from streamlit.string_util import validate_emoji
+
+                validate_emoji(icon)
+            self.alerts.append((kind, str(body)))
+
+        return call
+
+    def __getattr__(self, name: str):  # noqa: ANN202
+        if name in {"info", "warning", "error", "success"}:
+            return self._alert(name)
+        if name == "markdown":
+            return lambda body, **_: self.markdown_calls.append(str(body))
+        if name == "caption":
+            return lambda body, **_: self.captions.append(str(body))
+
+        def anything(*_: object, **__: object) -> None:
+            return None
+
+        return anything
+
+    def rendered(self) -> str:
+        return " ".join(self.markdown_calls + self.captions + [b for _, b in self.alerts])
+
+
+@pytest.fixture
+def strict(monkeypatch):
+    """Import the renderers against the strict stand-in.
+
+    Possible only because the renderers live in ``ui/clinical_render.py`` rather
+    than in the page script. Reaching them through the page meant faking
+    ``session_state``, ``sidebar``, ``stop`` and enough of Streamlit's
+    context-manager surface to get past the sidebar — at which point the test
+    was exercising the fake instead of the code, which is how the icon crash got
+    through in the first place.
+    """
+    import importlib
+    import sys
+
+    fake = StrictStreamlit()
+    monkeypatch.setitem(sys.modules, "streamlit", fake)  # type: ignore[arg-type]
+    module = importlib.import_module("ui.clinical_render")
+    importlib.reload(module)
+    yield fake, module
+    monkeypatch.undo()
+    importlib.reload(module)
+
+
+DOSAGE_PAYLOAD = {
+    "record": "Cystitis",
+    "citation": "disease_list.csv, row 14, Cystitis",
+    "treatment_context": "Antibiotics and pain relievers.",
+    "cohorts": {
+        "paediatric": {
+            "applies_to": "children",
+            "recorded": True,
+            "dosing": "Amoxicillin-clavulanate (20-40mg/kg/day) divided into 2-3 doses",
+            "dosing_basis": "weight_based",
+            "maximum_daily_dose": "not recorded in the source documents",
+            "verification_notice": "Verify against the formulary.",
+            "incomplete_source_notice": "No maximum daily dose is recorded.",
+        }
+    },
+    "notice": "Reference summary compiled from indexed source documents.",
+}
+
+
+def test_the_dosage_renderer_runs_and_draws_the_missing_ceiling(strict):
+    """The path that crashed, exercised rather than scanned."""
+    fake, module = strict
+
+    module.render_dosage(DOSAGE_PAYLOAD)
+
+    rendered = fake.rendered()
+    assert "Cystitis" in rendered
+    assert "20-40mg/kg/day" in rendered
+    assert "ds-gap" in rendered, "the unrecorded ceiling should be drawn as an absence"
+    assert "No maximum daily dose is recorded." in rendered
+
+
+def test_a_recorded_ceiling_is_not_drawn_as_a_gap(strict):
+    """The discrimination Decision 2 is for, at the rendering layer."""
+    fake, module = strict
+    payload = {
+        **DOSAGE_PAYLOAD,
+        "cohorts": {
+            "paediatric": {
+                **DOSAGE_PAYLOAD["cohorts"]["paediatric"],
+                "maximum_daily_dose": "max 75mg/kg/day",
+                "incomplete_source_notice": None,
+            }
+        },
+    }
+    payload["cohorts"]["paediatric"].pop("incomplete_source_notice")
+
+    module.render_dosage(payload)
+
+    rendered = fake.rendered()
+    assert "max 75mg/kg/day" in rendered
+    assert "ds-gap" not in rendered
+
+
+def test_the_considerations_renderer_draws_citations_and_support(strict):
+    fake, module = strict
+
+    module.render_considerations(
+        {
+            "match": "found",
+            "summary": [
+                {
+                    "position": 1,
+                    "consideration": "Pneumonia",
+                    "citation": "disease_list.csv, row 45, Pneumonia",
+                    "support": 0.74,
+                    "clinical features": "Cough with phlegm, fever, chills.",
+                }
+            ],
+            "rule_outs": {
+                "source": "clinic red-flag register",
+                "conditions": ["Pneumonia"],
+                "note": "Drawn from the register.",
+            },
+            "ordering": "By strength of support in the retrieved context.",
+            "coverage_note": "The source documents do not carry confirmatory tests.",
+        }
+    )
+
+    rendered = fake.rendered()
+    assert "Pneumonia" in rendered
+    assert "ds-cite" in rendered
+    assert "0.74" in rendered
+    assert "clinic red-flag register" in rendered
+    assert "confirmatory tests" in rendered
+
+
+def test_the_no_match_response_renders_without_a_summary(strict):
+    fake, module = strict
+
+    module.render_considerations({"match": "none", "summary": "No consideration matches."})
+
+    assert any("No consideration matches." in body for _, body in fake.alerts)
+    assert "ds-card" not in fake.rendered()
