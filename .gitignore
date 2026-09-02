@@ -17,8 +17,13 @@ dist/
 .coverage
 htmlcov/
 
-# runtime data — synthetic, but never commit a database or an audit log
-data/
+# runtime data — synthetic, but never commit a database or an audit log.
+#
+# Anchored to the repository root. As a bare `data/` this also matched
+# app/knowledge/data/, so the vendored disease corpus was never committed —
+# found while preparing a submission, where a grader would have had every
+# knowledge test fail on a missing file.
+/data/
 *.db
 *.sqlite3
 audit/
