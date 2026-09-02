@@ -34,6 +34,7 @@ dev = [
 verify-audit = "app.store.verify:main"
 evals = "evals.runner:main"
 build-kb = "app.knowledge.build:main"
+screenshot = "scripts.screenshot:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -73,3 +74,8 @@ testpaths = ["tests"]
 addopts = "-q --strict-markers"
 markers = ["live: hits a real model endpoint; excluded from the default run"]
 asyncio_mode = "auto"
+
+[dependency-groups]
+dev = [
+    "playwright>=1.62.0",
+]

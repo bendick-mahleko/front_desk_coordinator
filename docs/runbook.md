@@ -88,6 +88,30 @@ issue; a fixture that supplied a copay would make that untestable.
 
 ---
 
+## Seeing the UI
+
+```
+uv run screenshot                 # both apps, if they are running
+uv run screenshot --url http://127.0.0.1:8501 --out shot.png --full
+```
+
+Uses the Chrome already on the machine, and waits for Streamlit's app view
+rather than for page load — a plain screenshot catches the loading skeleton.
+
+**Restart Streamlit after changing anything, and check the old one actually
+died.** `uv run streamlit` spawns a chain of processes, so killing whatever
+`netstat` reports as holding the port often leaves the app running. Three
+generations of stale instances accumulated across one session that way, each
+serving code from hours earlier, which looks exactly like a change having no
+effect:
+
+```
+powershell -Command "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*streamlit*run*ui/*' } | Select ProcessId, CreationDate"
+```
+
+If that lists anything after you meant to stop it, kill the tree with
+`taskkill /F /T /PID <id>`.
+
 ## If the UI looks wrong
 
 The Streamlit theme is pinned in `.streamlit/config.toml`, and both apps depend

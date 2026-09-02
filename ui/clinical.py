@@ -103,7 +103,7 @@ if not clinical_config.get("enabled"):
     st.stop()
 
 with st.sidebar:
-    st.markdown("### Session")
+    st.markdown('<div class="ds-label">Session</div>', unsafe_allow_html=True)
     if st.session_state.session_id is None:
         if st.button("Establish clinical session", type="primary", use_container_width=True):
             established = post("/clinical/session")
@@ -151,7 +151,7 @@ with st.sidebar:
             st.rerun()
 
     st.divider()
-    st.markdown("### This clinic")
+    st.markdown('<div class="ds-label">This clinic</div>', unsafe_allow_html=True)
     st.caption(f"Session length: {clinical_config.get('session_minutes')} minutes")
     st.caption(f"Eligible channels: {', '.join(clinical_config.get('channels', [])) or '—'}")
     st.caption("Licensed roles accepted:")

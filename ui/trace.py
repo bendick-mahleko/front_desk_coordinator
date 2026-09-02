@@ -30,7 +30,21 @@ DENIAL_HELP = {
 def render(events: list[dict[str, Any]]) -> None:
     """Draw the trace for one turn."""
     if not events:
-        st.caption("No activity yet. Send a message to see the gate at work.")
+        # Before the first message this panel is most of the screen, and one grey
+        # line of prose made the page look broken rather than ready. It now says
+        # what will appear here and what to watch for.
+        st.markdown(
+            '<div class="ds-empty">'
+            "<strong>Nothing has been asked yet.</strong><br>"
+            "Every function the model proposes will appear here with the gate's "
+            "verdict — the six checks it passed, and the one that stopped it if "
+            "any did.<br><br>"
+            "The two worth watching: ask for appointments <em>before</em> "
+            "verifying and the gate refuses at <strong>authorization</strong>; "
+            "verify, then ask again, and the same call is allowed."
+            "</div>",
+            unsafe_allow_html=True,
+        )
         return
 
     for event in events:

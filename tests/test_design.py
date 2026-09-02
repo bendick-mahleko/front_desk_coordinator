@@ -113,13 +113,57 @@ def test_the_stylesheet_touches_nothing_the_framework_owns(surface):
     colours the theme derives dozens of others from. That produced a near-black
     page with dark text, and then dark labels on dark buttons.
     """
+    permitted = set(design.FRAMEWORK_EXCEPTIONS)
     offenders = [
         selector
         for selector, _ in css_rules(design.stylesheet(surface))
-        if not all(part.strip().startswith(".ds-") for part in selector.split(","))
+        if not all(
+            part.strip().startswith(".ds-") or part.strip() in permitted
+            for part in selector.split(",")
+        )
     ]
 
     assert offenders == [], f"{surface}: rules over framework internals: {offenders}"
+
+
+def test_every_framework_exception_is_justified_and_used():
+    """An allowlist rather than a free hand.
+
+    One of Streamlit's own defaults is inaccessible — captions render at opacity
+    0.6, roughly 3.4:1 on the sidebar ground, which is what "the text is too hard
+    to read" was about, and there is no theme token that replaces it. So the rule
+    has exceptions; each one has to be named, justified, and actually used, or the
+    allowlist becomes the free hand it exists to prevent.
+    """
+    assert design.FRAMEWORK_EXCEPTIONS, "no exceptions declared"
+
+    for selector, reason in design.FRAMEWORK_EXCEPTIONS.items():
+        assert len(reason) > 80, f"{selector} needs a real justification"
+        assert any(
+            selector in rendered
+            for rendered in (design.stylesheet("patient"), design.stylesheet("clinical"))
+        ), f"{selector} is allowlisted but never used"
+
+
+def test_an_exception_never_paints_a_background():
+    """The narrow line the allowlist must not cross.
+
+    Both unreadable pages came from this file and the theme disagreeing about a
+    *ground*. An exception that sets colour on text with a transparent background
+    cannot reproduce that; one that paints a background can.
+    """
+    permitted = set(design.FRAMEWORK_EXCEPTIONS)
+    for surface in SURFACES:
+        for selector, body in css_rules(design.stylesheet(surface)):
+            if selector.strip() in permitted:
+                assert "background" not in body, f"{selector} paints a ground"
+
+
+def test_secondary_text_reaches_aa():
+    """The readability complaint, measured. Streamlit's caption at 0.6 opacity is
+    about 3.4:1 on the sidebar ground; this replaces it at full strength."""
+    assert contrast(design.QUIET, design.THEME_GROUND) > 4.5
+    assert contrast(design.QUIET, design.THEME_SECONDARY) > 4.5
 
 
 @pytest.mark.parametrize("surface", SURFACES)
@@ -208,3 +252,34 @@ def test_the_glyphs_are_typographic_not_emoji():
     for glyph in (design.ALLOW_GLYPH, design.DENY_GLYPH):
         assert len(glyph) == 1
         assert not (0x1F300 <= ord(glyph) <= 0x1FAFF), f"{glyph!r} is an emoji"
+
+
+# ---------------------------------------------- Streamlit's magic rendering ---
+
+
+@pytest.mark.parametrize("page", ["app.py", "clinical.py"])
+def test_a_page_script_has_no_bare_string_expression(page):
+    """Streamlit's "magic" renders a bare expression at the top level of a page
+    script, so a string sitting after an assignment becomes page content.
+
+    A module docstring is fine — it is the first statement and Streamlit skips
+    it. A *second* one is not. One written to document a dict appeared above the
+    title as two paragraphs of prose about colour choices, in the middle of
+    fixing a complaint that the page looked wrong.
+
+    Only the page scripts are affected. Imported modules are not run by
+    Streamlit, so `design.py` and `clinical_render.py` may document freely.
+    """
+    import ast
+
+    tree = ast.parse((ROOT / "ui" / page).read_text(encoding="utf-8"))
+    offenders = [
+        f"{page}:{node.lineno}: {node.value.value[:60]!r}"
+        for index, node in enumerate(tree.body)
+        if index > 0  # the module docstring is exempt
+        and isinstance(node, ast.Expr)
+        and isinstance(node.value, ast.Constant)
+        and isinstance(node.value.value, str)
+    ]
+
+    assert offenders == [], "Streamlit will render these as page content:\n" + "\n".join(offenders)

@@ -77,6 +77,35 @@ EMERGENCY = "#8a1c1c"
 NOTICE = "#1f4e79"
 MUTED = "#6b7f86"
 
+QUIET = "#4a5c63"
+"""Secondary text, at a weight that actually reaches AA.
+
+Streamlit renders `st.caption` at `opacity: 0.6`, which takes the theme's ink to
+roughly 3.4:1 on the sidebar ground — below AA for body text, and the reason the
+sidebar was reported as hard to read. There is no theme token for secondary text,
+so the opacity is overridden (see FRAMEWORK_EXCEPTIONS) and this colour is used
+at full strength instead.
+"""
+
+FRAMEWORK_EXCEPTIONS: dict[str, str] = {
+    '[data-testid="stCaptionContainer"]': (
+        "Streamlit renders captions at opacity 0.6, which is below WCAG AA on "
+        "its own ground. There is no theme token for secondary text, so this is "
+        "overridden here. Safe in a way the rules that broke twice were not: it "
+        "sets opacity and colour on a text-only element with a transparent "
+        "background, so there is no ground for the framework and this file to "
+        "disagree about."
+    ),
+}
+"""Framework selectors this stylesheet is permitted to touch, and why.
+
+An allowlist rather than a free hand. Every entry is a deliberate exception to
+"style nothing the framework owns", each justified in place, and a test asserts
+the stylesheet touches nothing outside `.ds-*` and these keys. The rule exists
+because ignoring it produced two unreadable pages; the allowlist exists because
+one of the framework's defaults is itself inaccessible.
+"""
+
 ALLOW_GLYPH = "✓"
 DENY_GLYPH = "✕"
 """Typographic marks rather than emoji.
@@ -111,6 +140,12 @@ def stylesheet(surface: Surface) -> str:
     p = PALETTES[surface]
     return f"""
 <style>
+  /* The one framework exception, justified in FRAMEWORK_EXCEPTIONS: Streamlit's
+     caption opacity is below AA, and no theme token replaces it. Opacity and
+     colour on a text-only element — no ground for the theme and this file to
+     disagree about. */
+  [data-testid="stCaptionContainer"] {{ opacity: 1; color: {QUIET}; }}
+
   /* The masthead. What makes a surface recognisable in a screenshot, and the
      only place the surface identity is expressed — identity through a component
      rather than by repainting the page, which is what kept going wrong. */
@@ -120,6 +155,26 @@ def stylesheet(surface: Surface) -> str:
     font-size: 0.92rem; line-height: 1.45;
   }}
   .ds-band strong {{ color: #ffffff; }}
+
+  /* A section label in the sidebar. Carries the identity so the eye has
+     something to anchor on besides grey. */
+  .ds-label {{
+    color: {p.identity}; font-size: 0.72rem; font-weight: 700;
+    letter-spacing: 0.09em; text-transform: uppercase;
+    margin: 0.2rem 0 0.35rem;
+  }}
+
+  /* Session state as a chip rather than an emoji and a word. */
+  .ds-chip {{
+    display: inline-block; background-color: {p.identity}; color: {p.identity_ink};
+    border-radius: 11px; padding: 0.12rem 0.6rem;
+    font-size: 0.78rem; font-weight: 600;
+  }}
+  .ds-chip-quiet {{
+    display: inline-block; background-color: {THEME_SECONDARY}; color: {QUIET};
+    border: 1px solid {THEME_BORDER}; border-radius: 11px;
+    padding: 0.12rem 0.6rem; font-size: 0.78rem; font-weight: 600;
+  }}
 
   /* A verdict: glyph, word and hue together, never hue alone. */
   .ds-verdict {{
@@ -153,6 +208,16 @@ def stylesheet(surface: Surface) -> str:
     border-left: 3px solid {p.identity};
     border-radius: 4px; padding: 0.6rem 0.8rem; margin-bottom: 0.5rem;
   }}
+
+  /* An empty panel that says what will appear in it. Most of this page is this
+     panel before the first message, and a single grey line of prose made the
+     screen look broken rather than ready. */
+  .ds-empty {{
+    background-color: {THEME_SECONDARY}; color: {QUIET};
+    border: 1px dashed {THEME_BORDER}; border-radius: 6px;
+    padding: 1rem 1.1rem; font-size: 0.88rem; line-height: 1.55;
+  }}
+  .ds-empty strong {{ color: {THEME_INK}; }}
   .ds-num {{ font-variant-numeric: tabular-nums; }}
 </style>
 """

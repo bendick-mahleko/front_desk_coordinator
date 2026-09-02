@@ -24,12 +24,22 @@ API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
 TURN_TIMEOUT = 180.0
 
 STATUS_BADGE = {
-    "none": ("⚪", "Anonymous", "Nothing protected can be disclosed."),
-    "identified": ("🟡", "Identified", "A record is known. Still nothing protected."),
-    "verified": ("🟢", "Verified", "Protected information and changes are permitted."),
-    "registered": ("🔵", "Registered", "May book. May not read an existing record."),
-    "locked": ("🔴", "Locked", "Verification attempts exhausted. Staff only."),
+    "none": ("Anonymous", "Nothing protected can be disclosed.", False),
+    "identified": ("Identified", "A record is known. Still nothing protected.", True),
+    "verified": ("Verified", "Protected information and changes are permitted.", True),
+    "registered": ("Registered", "May book. May not read an existing record.", True),
+    "locked": ("Locked", "Verification attempts exhausted. Staff only.", True),
 }
+# (label, what it permits, whether the session has established anybody).
+#
+# A comment, not a docstring. Streamlit's "magic" renders a bare expression at
+# the top level of a page script, so a string sitting after an assignment becomes
+# page content — this one appeared above the title as two paragraphs of prose
+# about colour choices, which is how it was found.
+#
+# The coloured-circle emoji are gone. Five circles differing only in hue is
+# colour alone, which is the failure the design rules exist to avoid, and a red
+# circle beside "Locked" said nothing the word did not.
 
 EXAMPLES = [
     "Are you open right now?",
@@ -129,15 +139,15 @@ if health is None:
     st.stop()
 
 with st.sidebar:
-    st.subheader("Session")
-
     summary = (
         get_json(f"/session/{st.session_state.session_id}") if st.session_state.session_id else None
     )
     status = (summary or {}).get("status", "none")
-    icon, label, explanation = STATUS_BADGE.get(status, STATUS_BADGE["none"])
+    label, explanation, established = STATUS_BADGE.get(status, STATUS_BADGE["none"])
 
-    st.markdown(f"### {icon} {label}")
+    st.markdown('<div class="ds-label">Session</div>', unsafe_allow_html=True)
+    chip = "ds-chip" if established else "ds-chip-quiet"
+    st.markdown(f'<span class="{chip}">{label}</span>', unsafe_allow_html=True)
     st.caption(explanation)
 
     # The ladder, always on screen. It used to be two metrics inside whichever
@@ -155,7 +165,7 @@ with st.sidebar:
     ledger = (summary or {}).get("ledger") or {}
     if any(ledger.values()):
         st.divider()
-        st.subheader("What it has been handed")
+        st.markdown('<div class="ds-label">What it has been handed</div>', unsafe_allow_html=True)
         st.markdown(diagrams.provenance_ledger(ledger), unsafe_allow_html=True)
         st.caption(
             "An id may only be passed into a function if a result produced it. "
@@ -167,7 +177,7 @@ with st.sidebar:
     model = config.get("language_model", {})
     knowledge = config.get("knowledge_base", {})
 
-    st.caption("Running with")
+    st.markdown('<div class="ds-label">Running with</div>', unsafe_allow_html=True)
     st.markdown(f"`{model.get('agent_model', health.get('agent_model', '?'))}`")
     st.caption(f"embeddings: `{knowledge.get('embedding_model', '—')}`")
     st.caption(f"{knowledge.get('chunks', 0)} knowledge chunks · see the Settings tab")
@@ -175,7 +185,7 @@ with st.sidebar:
         st.warning("Service is degraded — see /health.", icon="⚠️")
 
     st.divider()
-    st.subheader("Try saying")
+    st.markdown('<div class="ds-label">Try saying</div>', unsafe_allow_html=True)
     for example in EXAMPLES:
         st.caption(f"· {example}")
 

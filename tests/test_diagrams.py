@@ -199,24 +199,38 @@ def test_markup_is_escaped():
     [("none", 0), ("open", 1), ("identified", 2), ("verified", 3)],
 )
 def test_the_ladder_fills_to_the_current_rung(status, expected_filled):
-    markup = _svg(diagrams.verification_ladder(status))
+    """Counted against the *identity* colour rather than any hex.
 
-    filled = len(re.findall(r'<circle[^/]*fill="#[0-9a-fA-F]{6}"', markup))
+    Unreached rungs are now filled white with a border rather than left
+    transparent — a hollow circle on an off-white ground was almost invisible —
+    so "has a hex fill" no longer distinguishes reached from unreached.
+    """
+    markup = _svg(diagrams.verification_ladder(status))
+    identity = design.PATIENT.identity
+
+    filled = len(re.findall(rf'<circle[^/]*fill="{identity}"', markup))
     assert filled == expected_filled
 
 
 def test_the_ladder_marks_where_the_conversation_is():
-    assert "now here" in diagrams.verification_ladder("identified")
+    assert "NOW HERE" in diagrams.verification_ladder("identified")
+
+
+def test_the_ladder_names_the_next_rung():
+    """With an anonymous session nothing is reached, so without this the ladder
+    says only what has *not* happened."""
+    assert "next" in diagrams.verification_ladder("none")
+    assert "NOW HERE" not in diagrams.verification_ladder("none")
 
 
 def test_an_unknown_status_fills_nothing_rather_than_guessing():
     """`registered` and `locked` are real session statuses that are not rungs on
     the §3 ladder. Drawing them as a rung would be a claim the gate does not
-    make."""
+    make — REGISTERED confers booking rights and nothing else."""
     markup = diagrams.verification_ladder("registered")
 
-    assert "now here" not in markup
-    assert re.findall(r'<circle[^/]*fill="none"', markup)
+    assert "NOW HERE" not in markup
+    assert design.PATIENT.identity not in markup, "no rung should read as reached"
 
 
 # ----------------------------------------------------------- the support bar ---

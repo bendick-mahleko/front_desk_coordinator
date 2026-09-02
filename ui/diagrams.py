@@ -24,6 +24,7 @@ from ui.design import (
     DENY,
     MUTED,
     PALETTES,
+    QUIET,
     THEME_BORDER,
     THEME_INK,
     Surface,
@@ -242,39 +243,58 @@ def verification_ladder(actual: str, surface: Surface = "patient") -> str:
     It used to be two `st.metric`s inside whichever expander happened to be open
     — state expressed as an event. A conversation has one position on the ladder
     at a time and it belongs somewhere ambient.
+
+    Unreached rungs are drawn in QUIET rather than MUTED. At MUTED they were the
+    faintest thing on the page, and with an anonymous session *every* rung is
+    unreached — so the one element meant to orient a reader was the one they
+    could not read.
     """
-    p = PALETTES[surface]
     reached = LADDER.index(actual) if actual in LADDER else -1
     step_h, pad, dot_x = 24, 4, 8
     height = len(LADDER) * step_h + pad
-    width = 200
+    width = 210
+    identity = PALETTES[surface].identity
 
     parts = [
         f'<svg viewBox="0 0 {width} {height}" role="img" '
         f'aria-label="Verification ladder: {_escape(actual)}" '
         f'style="max-width:100%;height:auto;font-family:inherit">'
         f'<line x1="{dot_x}" y1="{pad + 8}" x2="{dot_x}" '
-        f'y2="{height - step_h + 8}" stroke="{THEME_BORDER}" stroke-width="2"/>'
+        f'y2="{height - step_h + 8}" stroke="{THEME_BORDER}" stroke-width="3"/>'
     ]
+    if reached > 0:
+        # The rail fills to the rung reached, so progress reads without counting.
+        parts.append(
+            f'<line x1="{dot_x}" y1="{pad + 8}" x2="{dot_x}" '
+            f'y2="{pad + reached * step_h + 8}" stroke="{identity}" stroke-width="3"/>'
+        )
+
     for index, rung in enumerate(LADDER):
         y = pad + index * step_h + 8
         if index <= reached:
             parts.append(
-                f'<circle cx="{dot_x}" cy="{y}" r="5" fill="{p.identity}"/>'
-                f'<text x="{dot_x + 14}" y="{y + 4}" font-size="11.5" '
-                f'font-weight="600" fill="{THEME_INK}">{rung}</text>'
+                f'<circle cx="{dot_x}" cy="{y}" r="5.5" fill="{identity}"/>'
+                f'<text x="{dot_x + 15}" y="{y + 4}" font-size="11.5" '
+                f'font-weight="700" fill="{THEME_INK}">{rung}</text>'
             )
         else:
             parts.append(
-                f'<circle cx="{dot_x}" cy="{y}" r="5" fill="none" '
+                f'<circle cx="{dot_x}" cy="{y}" r="5" fill="#ffffff" '
                 f'stroke="{THEME_BORDER}" stroke-width="2"/>'
-                f'<text x="{dot_x + 14}" y="{y + 4}" font-size="11.5" '
-                f'fill="{MUTED}">{rung}</text>'
+                f'<text x="{dot_x + 15}" y="{y + 4}" font-size="11.5" '
+                f'fill="{QUIET}">{rung}</text>'
             )
         if index == reached:
             parts.append(
                 f'<text x="{width - 4}" y="{y + 4}" text-anchor="end" '
-                f'font-size="10" font-weight="600" fill="{p.identity}">now here</text>'
+                f'font-size="9.5" font-weight="700" fill="{identity}">NOW HERE</text>'
+            )
+        elif index == reached + 1:
+            # With an anonymous session nothing is reached, so without this the
+            # ladder says only what has *not* happened.
+            parts.append(
+                f'<text x="{width - 4}" y="{y + 4}" text-anchor="end" '
+                f'font-size="9.5" fill="{QUIET}">next</text>'
             )
     parts.append("</svg>")
     return "".join(parts)

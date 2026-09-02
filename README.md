@@ -193,6 +193,9 @@ app/
 .streamlit/
   config.toml      The Streamlit theme, pinned — both apps depend on it
 
+scripts/
+  screenshot.py    `uv run screenshot` — see the UI without guessing
+
 ui/
   design.py        One design language: semantic colour and this project's own components
   diagrams.py      Static inline SVG — the gate pipeline, tiers, the ledger
@@ -208,7 +211,7 @@ evals/
   runner.py        Drives scenarios, asserts on the audit log
   judge.py         LLM judge, for claims that are genuinely about wording
   scenarios/       24 YAML scenarios
-tests/             1185 tests, no network, no model
+tests/             1191 tests, no network, no model
   replay.py        Recorded-transcript backend, so tests need no API
 clinic.yaml        Clinic policy and configuration
 ```
