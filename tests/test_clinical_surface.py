@@ -429,3 +429,37 @@ def test_the_settings_panel_survives_a_config_without_the_block():
 
     importlib.reload(settings)
     settings.render({"service": {}, "language_model": {}, "knowledge_base": {}})
+
+
+# ------------------------------------------------------------ doc drift ---
+
+
+def test_every_ui_entry_point_is_in_the_demo_script():
+    """A guard for the failure that prompted it.
+
+    C7 built the clinical surface and documented it in the runbook. The demo
+    script — which is what somebody actually follows — was never updated, so a
+    reader ran the two commands it lists, found no way to ask a clinical
+    question, and reasonably concluded the feature was not there.
+
+    The surface working and the surface being findable are different properties,
+    and only one of them had a test.
+    """
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    demo = (root / "docs" / "demo.md").read_text(encoding="utf-8")
+    readme = (root / "README.md").read_text(encoding="utf-8")
+
+    entry_points = sorted(
+        path.name
+        for path in (root / "ui").glob("*.py")
+        if "streamlit" in path.read_text(encoding="utf-8")
+        and path.name != "__init__.py"
+        and "st.set_page_config" in path.read_text(encoding="utf-8")
+    )
+
+    assert entry_points, "no Streamlit entry points found — has the UI moved?"
+    for name in entry_points:
+        assert f"ui/{name}" in demo, f"docs/demo.md never tells anyone to run ui/{name}"
+        assert f"ui/{name}" in readme, f"README.md never tells anyone to run ui/{name}"

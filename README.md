@@ -39,10 +39,15 @@ uv sync --extra dev            # creates .venv, installs everything
 cp .env.example .env           # then set ANTHROPIC_API_KEY (or run `ant auth login`)
 
 uv run uvicorn app.main:app --reload --port 8000
-uv run streamlit run ui/app.py --server.port 8501
+uv run streamlit run ui/app.py       --server.port 8501   # patients
+uv run streamlit run ui/clinical.py  --server.port 8502   # clinical staff
 ```
 
-API at <http://localhost:8000> (docs at `/docs`), UI at <http://localhost:8501>.
+API at <http://localhost:8000> (docs at `/docs`). Two interfaces, deliberately
+separate: patients at <http://localhost:8501>, clinical staff at
+<http://localhost:8502>. Specification §3.2 forbids establishing a clinical
+session on a patient-facing channel, so they are different applications rather
+than two tabs of one.
 
 Talk to it:
 
@@ -196,7 +201,7 @@ evals/
   runner.py        Drives scenarios, asserts on the audit log
   judge.py         LLM judge, for claims that are genuinely about wording
   scenarios/       24 YAML scenarios
-tests/             1136 tests, no network, no model
+tests/             1137 tests, no network, no model
   replay.py        Recorded-transcript backend, so tests need no API
 clinic.yaml        Clinic policy and configuration
 ```
@@ -241,6 +246,26 @@ The emergency number is `clinic.yaml` policy, not a constant — `911` is wrong
 everywhere outside the US.
 
 ## The interface
+
+### The clinical surface
+
+A second application, on its own port, in its own palette — <http://localhost:8502>.
+Establish a session, then authenticate with a staff identifier and a credential
+token (never a password). `app/clinic_sim/fixtures/staff.json` has the fixtures:
+`STAFF-2001` / `fixture-token-alvarez` is a physician, and the other rows exist to
+be refused — a shared account, a non-clinical role, an expired credential.
+
+It answers questions a patient session has no capability for: diagnostic
+considerations cited to the source documents, and treatment and dosage reference
+reproduced word for word. It will not write a prescription, calculate a dose for a
+patient, assign urgency, or do front-desk work — those belong to the patient
+channel, and it says so.
+
+Set `clinical.enabled: false` in `clinic.yaml` and the whole thing disappears:
+the endpoint 404s, the page says so, and the four clinical functions are in no
+tool schema at all.
+
+### The patient surface
 
 Chat on the left, the gate's reasoning on the right. Four tabs: **Policy gate**,
 **Outbox**, **Staff queue** and **Settings**.
