@@ -62,6 +62,16 @@ is what §4.13's "drop to the system role" has to mean if it means anything.
 """
 
 
+CLINICAL_PAYLOADS = frozenset({"summarize_diagnostic_considerations", "get_dosage_information"})
+"""Functions whose result the clinical surface renders directly.
+
+Only the two that return a *structure* worth rendering.
+``search_clinical_knowledge`` returns raw chunks the assistant is meant to quote,
+and ``authenticate_clinical_user`` returns a session fact already reported
+elsewhere — neither gains anything from being drawn twice.
+"""
+
+
 class PromptUnavailable(RuntimeError):
     """No system prompt is defined for a session's role."""
 
@@ -188,16 +198,35 @@ class TurnRecorder:
         self._record("gate_decision", function, raw_args, gate, latency_ms=latency_ms)
 
     def tool_result(self, function: str, result: Any, session: Session) -> None:
-        self.events.append(
-            TraceEvent(
-                "result",
-                {
-                    "function": function,
-                    "status": (result.get("error", "ok") if isinstance(result, dict) else "ok"),
-                    "session_status": session.status.value,
-                },
-            )
-        )
+        detail: dict[str, Any] = {
+            "function": function,
+            "status": (result.get("error", "ok") if isinstance(result, dict) else "ok"),
+            "session_status": session.status.value,
+        }
+
+        # The structured payload, for a clinical session's own trace only.
+        #
+        # §4.15 and §4.16 return exactly what a clinician wants to read —
+        # considerations with citations, dosage with a basis and a ceiling — and
+        # the UI was rendering the model's paraphrase of it instead. That is the
+        # one artifact where fidelity matters most re-rendered through a language
+        # model, so the payload goes to the surface that asked for it.
+        #
+        # Gated on the *established* role and on the function, not on either
+        # alone. A patient session cannot call these at all (§2), so there is
+        # nothing to attach there — but "cannot happen today" is the kind of
+        # claim that expires, and §7.3 is not a rule to leave resting on one.
+        #
+        # This is the trace stream for one session, not the audit log: the audit
+        # record still stores an outcome and references rather than a body.
+        if (
+            session.role is Role.CLINICAL_ASSISTANT
+            and function in CLINICAL_PAYLOADS
+            and isinstance(result, dict)
+        ):
+            detail["payload"] = result
+
+        self.events.append(TraceEvent("result", detail))
         self._record("tool_result", function, result)
 
     def note(self, kind: str, detail: dict[str, Any]) -> None:

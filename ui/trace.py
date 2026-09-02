@@ -14,6 +14,8 @@ from typing import Any
 
 import streamlit as st
 
+from ui import design, diagrams
+
 LEVEL_ORDER = ["open", "identified", "verified", "number_confirmed"]
 
 DENIAL_HELP = {
@@ -45,6 +47,10 @@ def render(events: list[dict[str, Any]]) -> None:
             st.error(f"Turn failed · {event.get('error')}", icon="⚠️")
         elif kind in {"verification", "escalation"}:
             _note(kind, event)
+        elif kind == "retrieval":
+            _retrieval(event)
+        elif kind == "clinical_retrieval":
+            _clinical_retrieval(event)
 
 
 def _prescreen(event: dict[str, Any]) -> None:
@@ -70,23 +76,33 @@ def _gate(event: dict[str, Any]) -> None:
     actual = event.get("actual") or "—"
     latency = event.get("latency_ms")
 
-    verdict = "ALLOW" if allowed else "DENY"
-    icon = "✅" if allowed else "⛔"
-    header = f"{icon} `{function}` — {verdict}"
+    code = event.get("code") or ("" if allowed else "denied")
+    mark = design.ALLOW_GLYPH if allowed else design.DENY_GLYPH
+    header = f"{mark}  {function} — {'allowed' if allowed else code}"
 
     with st.expander(header, expanded=not allowed):
-        left, right = st.columns(2)
-        left.metric("Required", required)
-        right.metric("Session is", actual)
+        # The pipeline replaces a pair of metrics. "Required: verified / Session
+        # is: identified" told you the rungs; it did not tell you that four
+        # earlier checks had passed and two later ones never ran, which is the
+        # part that makes the design legible.
+        st.markdown(diagrams.gate_pipeline(allowed, event.get("code")), unsafe_allow_html=True)
+        st.markdown(design.verdict(allowed), unsafe_allow_html=True)
 
         if not allowed:
-            code = event.get("code") or "denied"
-            st.error(f"**{code}** — {DENIAL_HELP.get(code, '')}", icon="⛔")
+            explanation = DENIAL_HELP.get(code, "")
+            st.markdown(f"**`{code}`** — {explanation}")
+            if required and required != "—":
+                st.caption(f"needed **{required}**, session is **{actual}**")
+        elif required and required != "—":
+            st.caption(f"needed **{required}**, session is **{actual}**")
 
+        footer = []
         if event.get("rule"):
-            st.caption(f"Rule: `{event['rule']}`")
+            footer.append(f"`{event['rule']}`")
         if latency is not None:
-            st.caption(f"Decided in {latency} ms")
+            footer.append(f"{latency} ms")
+        if footer:
+            st.caption(" · ".join(footer))
 
         args = event.get("args") or {}
         if args:
@@ -101,6 +117,38 @@ def _result(event: dict[str, Any]) -> None:
         st.caption(f"↳ `{function}` returned ok · session now **{event.get('session_status')}**")
     else:
         st.caption(f"↳ `{function}` returned `{status}`")
+
+
+def _retrieval(event: dict[str, Any]) -> None:
+    """A patient-side retrieval. §1.3 as a picture: the clinician band is drawn
+    locked, because the filter was built from the role before the query ran."""
+    queried = list(event.get("tiers") or [])
+    with st.expander(f"Knowledge retrieval · {len(event.get('hits') or [])} hit(s)"):
+        st.markdown(
+            diagrams.tier_bands(queried, ["patient_safe", "routing_only"]),
+            unsafe_allow_html=True,
+        )
+        for hit in event.get("hits") or []:
+            st.caption(f"`{hit.get('chunk_id')}` · {hit.get('score')}")
+
+
+def _clinical_retrieval(event: dict[str, Any]) -> None:
+    """A clinical-session retrieval. The clinician tier is available here, which
+    is the one respect in which the roles differ (§1.2)."""
+    effective = event.get("effective_tier")
+    queried = effective if isinstance(effective, list) else [effective] if effective else []
+    label = event.get("tool", "retrieval")
+    with st.expander(f"{label} · {event.get('outcome', '')}"):
+        st.markdown(
+            diagrams.tier_bands(
+                [t for t in queried if t],
+                ["patient_safe", "routing_only", "clinician_only"],
+                surface="clinical",
+            ),
+            unsafe_allow_html=True,
+        )
+        if event.get("staff_id"):
+            st.caption(f"staff `{event['staff_id']}`")
 
 
 def _note(kind: str, event: dict[str, Any]) -> None:

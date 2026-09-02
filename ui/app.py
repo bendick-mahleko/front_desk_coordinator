@@ -14,6 +14,7 @@ from typing import Any
 import httpx
 import streamlit as st
 
+from ui import design, diagrams
 from ui import outbox as outbox_view
 from ui import queue as queue_view
 from ui import settings as settings_view
@@ -107,7 +108,16 @@ def reset_session() -> None:
 
 # --------------------------------------------------------------- layout ---
 
+st.markdown(design.stylesheet("patient"), unsafe_allow_html=True)
 st.title("AI Front Desk Coordinator")
+st.markdown(
+    design.band(
+        "<strong>Patient channel.</strong> The assistant can schedule, verify and "
+        "escalate. It cannot give medical advice, and it holds no clinical "
+        "capability to be talked into."
+    ),
+    unsafe_allow_html=True,
+)
 
 health = get_json("/health")
 if health is None:
@@ -129,12 +139,28 @@ with st.sidebar:
 
     st.markdown(f"### {icon} {label}")
     st.caption(explanation)
+
+    # The ladder, always on screen. It used to be two metrics inside whichever
+    # gate expander happened to be open — state expressed as an event, when a
+    # conversation has exactly one position on the §3 ladder at a time.
+    st.markdown(diagrams.verification_ladder(status), unsafe_allow_html=True)
+
     if summary:
         st.caption(f"Turn {summary['turn_index']} · `{summary['session_id']}`")
         if summary.get("patient_id"):
             st.caption(f"Record: `{summary['patient_id']}`")
 
     st.button("Start a new conversation", on_click=reset_session, use_container_width=True)
+
+    ledger = (summary or {}).get("ledger") or {}
+    if any(ledger.values()):
+        st.divider()
+        st.subheader("What it has been handed")
+        st.markdown(diagrams.provenance_ledger(ledger), unsafe_allow_html=True)
+        st.caption(
+            "An id may only be passed into a function if a result produced it. "
+            "Anything not shown here is an unknown reference."
+        )
 
     st.divider()
     config = get_json("/config") or {}
@@ -156,8 +182,6 @@ with st.sidebar:
 chat_column, trace_column = st.columns([3, 2], gap="large")
 
 with chat_column:
-    st.caption("The assistant can schedule, verify and escalate. It cannot give medical advice.")
-
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])

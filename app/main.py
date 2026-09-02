@@ -64,6 +64,22 @@ class SessionSummary(BaseModel):
     turn_index: int
     patient_id: str | None
 
+    ledger: dict[str, list[str]] = Field(default_factory=dict)
+    """What this conversation has been handed, and may therefore refer to.
+
+    The provenance rule — an identifier may only be passed into a function if a
+    previous result produced it — is invisible until it refuses something. Read
+    here so the UI can show it accumulating, which makes ``unknown_reference``
+    explain itself.
+
+    Every value is a clinic-issued reference rather than a fact about a person:
+    the same set ``SAFE_REFERENCE_FIELDS`` exempts from the redactor. No name, no
+    date of birth, no contact detail can appear here.
+    """
+
+    clinical: dict[str, Any] | None = None
+    """Authentication state, for a clinical session only. Never a credential."""
+
 
 class HealthResponse(BaseModel):
     status: Literal["ok", "degraded"]
@@ -225,6 +241,28 @@ def create_app(orchestrator: Orchestrator | None = None) -> FastAPI:
         app.state.sessions[session.session_id] = session
         return session
 
+    def _summary(session: Session) -> SessionSummary:
+        clinical: dict[str, Any] | None = None
+        if session.role is Role.CLINICAL_ASSISTANT:
+            clinical = {
+                "authenticated": session.clinical_authentication_valid,
+                "staff_id": session.staff_id,
+                "role": session.asserted_role.value if session.asserted_role else None,
+                "expires_at": session.expires_at.isoformat() if session.expires_at else None,
+            }
+        return SessionSummary(
+            session_id=session.session_id,
+            status=session.status.value,
+            turn_index=session.turn_index,
+            patient_id=session.patient_id,
+            ledger={
+                "patient_ids": sorted(session.seen_patient_ids),
+                "appointment_ids": sorted(session.seen_appointment_ids),
+                "slot_ids": sorted(session.seen_slot_ids),
+            },
+            clinical=clinical,
+        )
+
     @app.post("/clinical/session", response_model=SessionSummary, tags=["clinical"])
     def establish_clinical_session() -> SessionSummary:
         """Establish a session whose principal is clinical_assistant (spec §3.2).
@@ -260,12 +298,7 @@ def create_app(orchestrator: Orchestrator | None = None) -> FastAPI:
         session = Session(role=Role.CLINICAL_ASSISTANT, channel=channel)
         app.state.sessions[session.session_id] = session
         _store().save(session)
-        return SessionSummary(
-            session_id=session.session_id,
-            status=session.status.value,
-            turn_index=session.turn_index,
-            patient_id=session.patient_id,
-        )
+        return _summary(session)
 
     @app.post("/chat", tags=["chat"])
     def chat(request: ChatRequest) -> EventSourceResponse:
@@ -393,13 +426,7 @@ def create_app(orchestrator: Orchestrator | None = None) -> FastAPI:
 
     @app.get("/session/{session_id}", response_model=SessionSummary, tags=["chat"])
     def session_summary(session_id: str) -> SessionSummary:
-        session = _session(session_id)
-        return SessionSummary(
-            session_id=session.session_id,
-            status=session.status.value,
-            turn_index=session.turn_index,
-            patient_id=session.patient_id,
-        )
+        return _summary(_session(session_id))
 
     @app.get("/health", response_model=HealthResponse, tags=["ops"])
     def health() -> HealthResponse:

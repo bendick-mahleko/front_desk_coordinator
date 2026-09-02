@@ -25,63 +25,20 @@ from typing import Any
 import httpx
 import streamlit as st
 
+from ui import design
+
 API = os.environ.get("API_BASE_URL", "http://127.0.0.1:8000")
 
 st.set_page_config(page_title="Clinical review — staff only", page_icon="🩺", layout="wide")
 
-# A palette of its own, and every rule that sets a ground also sets an ink.
-#
-# The first version set only `.stApp { background-color: #101820 }` — a near-black
-# ground with no colour declared — so Streamlit kept painting its own dark text on
-# it and the page was unreadable on a light theme. Half a dark mode is worse than
-# none: the patient app declares no colours at all and inherits the viewer's
-# theme, which is why only this page broke.
-#
-# Light rather than dark, deliberately. The requirement is that a clinician can
-# tell at a glance which surface they are on, not that this one be dark, and a
-# light scheme with a strong accent needs far less CSS to stay legible against
-# whatever theme the viewer has chosen. Contrast of the ink on the ground is
-# about 12:1, well past WCAG AA.
-CLINICAL_CSS = """
-<style>
-  /* Ground and ink together, always. */
-  .stApp { background-color: #f1f6f7; color: #14282e; }
+NO_MAXIMUM = "not recorded in the source documents"
+"""The exact string app/tools/clinical.py uses for an unrecorded ceiling.
 
-  /* Streamlit colours several of these itself, so inheritance is not enough. */
-  .stApp, .stApp p, .stApp li, .stApp label, .stApp span,
-  .stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp h5,
-  .stApp [data-testid="stMarkdownContainer"] { color: #14282e; }
-
-  .stApp [data-testid="stCaptionContainer"],
-  .stApp [data-testid="stCaptionContainer"] * { color: #41626a; }
-
-  /* The container owns its own text, not just its children: a descendant rule
-     misses anything Streamlit renders directly into the container. */
-  [data-testid="stSidebar"] { background-color: #dce8ea; color: #14282e; }
-  [data-testid="stSidebar"] * { color: #14282e; }
-  [data-testid="stHeader"] { background-color: #f1f6f7; color: #14282e; }
-
-  /* The band is what makes the surface recognisable in a screenshot. */
-  .clin-band {
-    background-color: #0f4c52; color: #eaf4f4;
-    padding: 0.7rem 1rem; border-radius: 4px; margin-bottom: 1rem;
-    font-size: 0.92rem; line-height: 1.45;
-  }
-  .clin-band strong { color: #ffffff; }
-
-  .stApp code, .stApp pre {
-    background-color: #e2eef0; color: #0b3a40;
-  }
-  [data-testid="stChatMessage"] {
-    background-color: #ffffff; color: #14282e; border: 1px solid #cfe0e3;
-  }
-  .stApp input, .stApp textarea {
-    background-color: #ffffff; color: #14282e;
-  }
-</style>
+Compared rather than parsed, so a change to the wording shows up as a rendering
+difference in a test rather than as a silently-missing warning.
 """
 
-st.markdown(CLINICAL_CSS, unsafe_allow_html=True)
+st.markdown(design.stylesheet("clinical"), unsafe_allow_html=True)
 
 
 def post(path: str, body: dict[str, Any] | None = None) -> dict[str, Any] | None:
@@ -124,6 +81,113 @@ def stream_turn(session_id: str, message: str) -> tuple[str, list[dict[str, Any]
     return reply, events
 
 
+# ------------------------------------------------- rendering the payload ---
+#
+# The tools return exactly what a clinician wants to scan — considerations with
+# citations and a support score, dosage with a basis and a ceiling — and this
+# page used to display the model's markdown paraphrase of it. That put the one
+# artifact where fidelity matters most through a language model twice.
+#
+# So the payload is the primary view and the assistant's prose is demoted to a
+# secondary block. A citation can no longer be paraphrased wrongly, because the
+# citation is not coming from the model.
+
+
+def render_considerations(payload: dict[str, Any]) -> None:
+    """Appendix A.1, drawn from the structure rather than the prose."""
+    if payload.get("match") == "none":
+        st.warning(payload.get("summary", ""), icon="○")
+        return
+
+    for entry in payload.get("summary", []):
+        st.markdown(
+            f'<div class="ds-card">'
+            f'<div style="display:flex;justify-content:space-between;'
+            f'align-items:baseline;gap:1rem">'
+            f"<strong>{entry.get('position')}. {entry.get('consideration')}</strong>"
+            f"{design.citation(entry.get('citation', ''))}</div>"
+            f"{design.support_bar(float(entry.get('support', 0.0)))}"
+            f'<div style="margin-top:0.4rem;font-size:0.88rem">'
+            f"{entry.get('clinical features', '')}</div>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+
+    rule_outs = payload.get("rule_outs") or {}
+    if rule_outs.get("conditions"):
+        st.markdown(
+            f"**Rule-outs** · {', '.join(rule_outs['conditions'])} "
+            f"{design.citation(rule_outs.get('source', ''))}",
+            unsafe_allow_html=True,
+        )
+        st.caption(rule_outs.get("note", ""))
+
+    # The ordering disclaimer and the coverage note are requirements (§4.15), so
+    # they are rendered rather than left to the model to remember.
+    if payload.get("ordering"):
+        st.caption(payload["ordering"])
+    if payload.get("coverage_note"):
+        st.info(payload["coverage_note"], icon="○")
+
+
+def render_dosage(payload: dict[str, Any]) -> None:
+    """Appendix A.2, with the ceiling drawn as a field rather than a sentence.
+
+    Decision 2's warning fires on 26 of the 27 scaled figures in this corpus, and
+    a sentence that appears almost always becomes furniture. As a *field* that is
+    visibly empty it survives repetition: the eye learns that the slot is usually
+    hatched, so a filled one is what stands out — the opposite of warning fatigue.
+    """
+    st.markdown(
+        f"**{payload.get('record')}** {design.citation(payload.get('citation', ''))}",
+        unsafe_allow_html=True,
+    )
+    if payload.get("treatment_context"):
+        st.caption(payload["treatment_context"])
+
+    for cohort, block in (payload.get("cohorts") or {}).items():
+        rows = [
+            f'<div class="ds-row"><span style="width:8.5rem;font-weight:600">'
+            f"{cohort} · {block.get('applies_to', '')}</span>"
+            f'<span style="flex:1">{block.get("dosing", "")}</span></div>'
+        ]
+        basis = block.get("dosing_basis", "")
+        if "maximum_daily_dose" in block:
+            ceiling = block["maximum_daily_dose"]
+            recorded = ceiling != NO_MAXIMUM
+            rows.append(
+                '<div class="ds-row"><span style="width:8.5rem">ceiling</span>'
+                '<span style="flex:1">'
+                + (
+                    f"<strong>{ceiling}</strong>"
+                    if recorded
+                    else design.gap("not recorded in the source documents")
+                )
+                + f'</span><span style="font-size:0.78rem;opacity:0.75">'
+                f"{basis.replace('_', ' ')}</span></div>"
+            )
+        else:
+            rows.append(
+                f'<div class="ds-row"><span style="width:8.5rem">basis</span>'
+                f'<span style="flex:1">{basis.replace("_", " ")}</span></div>'
+            )
+        st.markdown(f'<div class="ds-card">{"".join(rows)}</div>', unsafe_allow_html=True)
+
+        if block.get("incomplete_source_notice"):
+            st.error(block["incomplete_source_notice"], icon="▲")
+        elif block.get("verification_notice"):
+            st.caption(block["verification_notice"])
+
+    if payload.get("notice"):
+        st.caption(payload["notice"])
+
+
+RENDERERS: dict[str, Any] = {
+    "summarize_diagnostic_considerations": render_considerations,
+    "get_dosage_information": render_dosage,
+}
+
+
 # --------------------------------------------------------------- session ---
 
 for key, default in [("session_id", None), ("messages", []), ("scope_stated", False)]:
@@ -135,9 +199,11 @@ clinical_config = config.get("clinical", {})
 
 st.title("🩺 Clinical review")
 st.markdown(
-    '<div class="clin-band"><strong>Staff channel — not patient-facing.</strong> '
-    "Reference material compiled from a fixed indexed source set, for clinician "
-    "review. Not a diagnosis, a treatment plan, or a prescription.</div>",
+    design.band(
+        "<strong>Staff channel — not patient-facing.</strong> Reference material "
+        "compiled from a fixed indexed source set, for clinician review. Not a "
+        "diagnosis, a treatment plan, or a prescription."
+    ),
     unsafe_allow_html=True,
 )
 
@@ -166,6 +232,29 @@ with st.sidebar:
     else:
         summary = get(f"/session/{st.session_state.session_id}") or {}
         st.code(st.session_state.session_id, language=None)
+
+        # §4.13 makes the capability time-bound, so the UI shows time passing
+        # rather than printing a timestamp once and leaving it there.
+        clinical_state = summary.get("clinical") or {}
+        if clinical_state.get("authenticated"):
+            expires = clinical_state.get("expires_at")
+            remaining = None
+            if expires:
+                from datetime import UTC, datetime
+
+                remaining = (
+                    datetime.fromisoformat(expires) - datetime.now(UTC)
+                ).total_seconds() / 60
+            role_label = (clinical_state.get("role") or "clinical staff").replace("_", " ")
+            if remaining is not None and remaining < 5:
+                st.warning(f"{role_label} · {remaining:.0f} min left", icon="▲")
+            elif remaining is not None:
+                st.success(f"{role_label} · {remaining:.0f} min left", icon="✓")
+            else:
+                st.success(role_label, icon="✓")
+            st.caption(f"staff `{clinical_state.get('staff_id')}`")
+        else:
+            st.info("not authenticated — no clinical capability", icon="○")
         st.caption(f"status: {summary.get('status', '?')}")
         if st.button("End session", use_container_width=True):
             # §3.2 — expiry requires re-authentication, and re-authenticating
@@ -212,17 +301,33 @@ if prompt:
 
     with st.chat_message("assistant"), st.spinner("Retrieving…"):
         reply, events = stream_turn(st.session_state.session_id, prompt)
-        st.markdown(reply or "_no reply_")
 
-        # The trace, in a clinician-legible form: which function ran, on which
-        # tier, and what it cited. §4.14's audit requirement is the log; this is
-        # the same information where the person can see it.
+        # The payload first, the prose second. Where a tool returned a structure
+        # worth drawing, that is the answer; the assistant's paraphrase of it is
+        # a secondary reading.
+        rendered_any = False
+        for event in events:
+            if event.get("kind") != "result":
+                continue
+            renderer = RENDERERS.get(event.get("function", ""))
+            payload = event.get("payload")
+            if renderer and isinstance(payload, dict) and "error" not in payload:
+                renderer(payload)
+                rendered_any = True
+
+        if rendered_any:
+            with st.expander("The assistant's summary of the above"):
+                st.markdown(reply or "_no reply_")
+        else:
+            st.markdown(reply or "_no reply_")
+
         notes: list[str] = []
         for event in events:
             kind = event.get("kind")
             if kind == "gate":
-                decision = "allowed" if event.get("allowed") else f"denied ({event.get('code')})"
-                notes.append(f"`{event.get('function')}` — {decision}")
+                mark = design.ALLOW_GLYPH if event.get("allowed") else design.DENY_GLYPH
+                outcome = "allowed" if event.get("allowed") else str(event.get("code"))
+                notes.append(f"{mark} `{event.get('function')}` — {outcome}")
             elif kind == "clinical_auth":
                 notes.append(
                     f"authentication: {event.get('outcome')} ({event.get('asserted_role', '—')})"

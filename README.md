@@ -191,7 +191,10 @@ app/
     fixtures/      24 patients, plans, seeded appointments
   util/dates.py    Date normalisation in clinic time
 ui/
-  app.py           Chat, session badge, layout
+  design.py        One design language: palette, semantic colour, primitives
+  diagrams.py      Static inline SVG — the gate pipeline, tiers, the ledger
+  app.py           Patient chat, the ladder, the provenance ledger
+  clinical.py      The staff surface (separate app, own port)
   trace.py         The policy-gate panel — the demo surface
   outbox.py        Sent messages and delivery status
   queue.py         Staff escalations
@@ -201,7 +204,7 @@ evals/
   runner.py        Drives scenarios, asserts on the audit log
   judge.py         LLM judge, for claims that are genuinely about wording
   scenarios/       24 YAML scenarios
-tests/             1141 tests, no network, no model
+tests/             1175 tests, no network, no model
   replay.py        Recorded-transcript backend, so tests need no API
 clinic.yaml        Clinic policy and configuration
 ```
