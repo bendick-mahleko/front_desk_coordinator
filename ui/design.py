@@ -29,52 +29,50 @@ from typing import Literal
 
 Surface = Literal["patient", "clinical"]
 
+# --- mirrored from .streamlit/config.toml --------------------------------
+#
+# Streamlit reads its theme from that file at startup, so these cannot be
+# generated from it at runtime. They are duplicated deliberately and a test
+# asserts the two agree — change one, change both, or the test says so.
+THEME_GROUND = "#fbfcfd"
+THEME_SECONDARY = "#eef3f5"
+THEME_INK = "#1a2328"
+THEME_BORDER = "#d6e0e4"
+
 
 @dataclass(frozen=True)
 class Palette:
-    """Ground, ink and identity for one surface."""
+    """What differs between the two surfaces — which is only the identity.
 
-    ground: str
-    ink: str
-    quiet: str
-    """Captions and secondary text. Still AA against the ground."""
-    panel: str
-    """Cards and chat bubbles, a step off the ground."""
-    edge: str
+    Ground, ink, borders and every widget colour come from the Streamlit theme
+    now, so there is one of each rather than one per surface. That is the whole
+    correction: identity belongs in a *component* (the masthead, the card rail,
+    the accent) and not in a repainted page, because repainting the page means
+    fighting the framework for control of colours it derives dozens of others
+    from.
+    """
+
     identity: str
-    """The accent that says which surface this is."""
     identity_ink: str
 
 
-PATIENT = Palette(
-    ground="#fbfcfd",
-    ink="#1a2328",
-    quiet="#54666e",
-    panel="#ffffff",
-    edge="#dbe3e7",
-    identity="#2c4a5e",
-    identity_ink="#eef4f7",
-)
-
-CLINICAL = Palette(
-    ground="#f1f6f7",
-    ink="#14282e",
-    quiet="#41626a",
-    panel="#ffffff",
-    edge="#cfe0e3",
-    identity="#0f4c52",
-    identity_ink="#eaf4f4",
-)
+PATIENT = Palette(identity="#2c4a5e", identity_ink="#eef4f7")
+CLINICAL = Palette(identity="#0f4c52", identity_ink="#eaf4f4")
 
 PALETTES: dict[Surface, Palette] = {"patient": PATIENT, "clinical": CLINICAL}
 
 # --- semantic colour, identical on both surfaces --------------------------
 #
-# Chosen so the pair also separates by *lightness*: the deny rust is markedly
-# darker than the allow teal, so the two remain distinguishable in grayscale
-# even before the glyph and the label are read.
-ALLOW = "#0f6a58"
-DENY = "#9e3520"
+# The pair separates by *lightness* as well as hue, so it survives a grayscale
+# print and a colourblind reader before the glyph and the label are even read.
+#
+# Measured, because the first attempt did not. #0f6a58 against #9e3520 looked
+# like a dark rust and a mid teal and had a relative contrast of **1.08** — all
+# but identical in luminance, so grayscale would have shown two indistinguishable
+# greys under a comment claiming otherwise. These separate at 2.17 while both
+# still reach AA on the themed ground and on a card.
+ALLOW = "#12796a"
+DENY = "#6b1f12"
 EMERGENCY = "#8a1c1c"
 NOTICE = "#1f4e79"
 MUTED = "#6b7f86"
@@ -91,41 +89,31 @@ reads like a toy.
 
 
 def stylesheet(surface: Surface) -> str:
-    """The one stylesheet a surface injects.
+    """The components this project draws itself. Nothing the framework owns.
 
-    Every rule that sets a background sets a colour. The container rules set
-    their own ink rather than delegating to a descendant selector, because a
-    descendant selector misses whatever the framework renders directly into the
-    container — which is the specific way this broke before.
+    Deliberately narrow, after breaking both surfaces by being broad. Streamlit's
+    theme (`.streamlit/config.toml`) paints the page, the sidebar, the buttons,
+    the inputs and the chat bubbles, and it derives all of those from a few
+    values so they stay consistent. A stylesheet cannot reach them reliably: it
+    sets some of a widget's colours while the theme sets the rest, and the half
+    that loses is whichever the framework applies later.
+
+    Both failures had that shape. First a near-black ground with no ink declared,
+    so a light theme painted dark text on it. Then a light ground with forced
+    dark ink, so a *dark* theme painted dark button labels on its own dark
+    buttons — invisible until hover repainted them.
+
+    So: no `.stApp` rule, no descendant selectors over framework internals, no
+    forcing colour onto anything with a background this file did not paint. Every
+    rule below styles a `ds-` class that only this project emits, and every one
+    that paints a ground declares its ink.
     """
     p = PALETTES[surface]
     return f"""
 <style>
-  .stApp {{ background-color: {p.ground}; color: {p.ink}; }}
-
-  /* Streamlit colours several of these itself, so inheritance is not enough. */
-  .stApp, .stApp p, .stApp li, .stApp label, .stApp span,
-  .stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp h5,
-  .stApp [data-testid="stMarkdownContainer"] {{ color: {p.ink}; }}
-
-  .stApp [data-testid="stCaptionContainer"],
-  .stApp [data-testid="stCaptionContainer"] * {{ color: {p.quiet}; }}
-
-  [data-testid="stSidebar"] {{ background-color: {p.edge}; color: {p.ink}; }}
-  [data-testid="stSidebar"] * {{ color: {p.ink}; }}
-  [data-testid="stHeader"] {{ background-color: {p.ground}; color: {p.ink}; }}
-
-  .stApp code, .stApp pre {{
-    background-color: {p.edge}; color: {p.ink};
-  }}
-  [data-testid="stChatMessage"] {{
-    background-color: {p.panel}; color: {p.ink}; border: 1px solid {p.edge};
-  }}
-  .stApp input, .stApp textarea {{
-    background-color: {p.panel}; color: {p.ink};
-  }}
-
-  /* The masthead. What makes a surface recognisable in a screenshot. */
+  /* The masthead. What makes a surface recognisable in a screenshot, and the
+     only place the surface identity is expressed — identity through a component
+     rather than by repainting the page, which is what kept going wrong. */
   .ds-band {{
     background-color: {p.identity}; color: {p.identity_ink};
     padding: 0.7rem 1rem; border-radius: 4px; margin-bottom: 1rem;
@@ -143,7 +131,7 @@ def stylesheet(surface: Surface) -> str:
 
   /* A citation, so a clinician can see at a glance that one exists. */
   .ds-cite {{
-    display: inline-block; background-color: {p.edge}; color: {p.ink};
+    display: inline-block; background-color: {THEME_SECONDARY}; color: {THEME_INK};
     border-radius: 3px; padding: 0.05rem 0.4rem;
     font-size: 0.76rem; font-variant-numeric: tabular-nums;
   }}
@@ -151,20 +139,18 @@ def stylesheet(surface: Surface) -> str:
   /* A field the source documents leave empty. Hatched rather than blank, so an
      absence reads as a recorded absence instead of a rendering slip. */
   .ds-gap {{
-    display: inline-block; color: {DENY}; font-size: 0.8rem; font-weight: 600;
-    background-image: repeating-linear-gradient(
-      135deg, {p.edge} 0 4px, transparent 4px 8px
-    );
+    display: inline-block; background-color: {THEME_SECONDARY}; color: {DENY};
+    font-size: 0.8rem; font-weight: 600;
     padding: 0.1rem 0.45rem; border: 1px solid {DENY}; border-radius: 3px;
   }}
 
   .ds-row {{
-    display: flex; align-items: center; gap: 0.6rem;
-    padding: 0.35rem 0; border-bottom: 1px solid {p.edge};
+    display: flex; align-items: baseline; gap: 0.6rem;
+    padding: 0.35rem 0; border-bottom: 1px solid {THEME_BORDER};
   }}
   .ds-card {{
-    background-color: {p.panel}; color: {p.ink};
-    border: 1px solid {p.edge}; border-left: 3px solid {p.identity};
+    background-color: {THEME_SECONDARY}; color: {THEME_INK};
+    border-left: 3px solid {p.identity};
     border-radius: 4px; padding: 0.6rem 0.8rem; margin-bottom: 0.5rem;
   }}
   .ds-num {{ font-variant-numeric: tabular-nums; }}
@@ -206,9 +192,9 @@ def support_bar(score: float, surface: Surface = "clinical", width: int = 120) -
     return (
         f'<span style="display:inline-flex;align-items:center;gap:0.45rem">'
         f'<span style="display:inline-block;width:{width}px;height:7px;'
-        f'background:{p.edge};border-radius:4px;overflow:hidden">'
+        f'background:{THEME_BORDER};border-radius:4px;overflow:hidden">'
         f'<span style="display:block;width:{filled}px;height:7px;'
         f'background:{p.identity}"></span></span>'
-        f'<span class="ds-num" style="font-size:0.76rem;color:{p.quiet}">'
+        f'<span class="ds-num" style="font-size:0.76rem;color:{MUTED}">'
         f"{score:.2f}</span></span>"
     )

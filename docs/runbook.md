@@ -88,6 +88,20 @@ issue; a fixture that supplied a copay would make that untestable.
 
 ---
 
+## If the UI looks wrong
+
+The Streamlit theme is pinned in `.streamlit/config.toml`, and both apps depend
+on it. Launch from the project root or Streamlit will not find it, and the pages
+will fall back to whatever the viewer's browser prefers — which is how the text
+went invisible twice.
+
+`ui/design.py` styles only classes prefixed `ds-`, which are components this
+project emits itself. Nothing in it reaches a Streamlit widget: a stylesheet that
+sets *some* of a widget's colours while the theme sets the rest loses to whichever
+is applied later, and both directions of that produced an unreadable page. If a
+widget looks wrong, change the theme file; if a card or a badge looks wrong,
+change `design.py`.
+
 ## The clinical surface (spec r3)
 
 Two apps, on purpose. §3.2 forbids establishing a clinical session on a

@@ -190,8 +190,11 @@ app/
     faults.py      Deterministic fault injection
     fixtures/      24 patients, plans, seeded appointments
   util/dates.py    Date normalisation in clinic time
+.streamlit/
+  config.toml      The Streamlit theme, pinned — both apps depend on it
+
 ui/
-  design.py        One design language: palette, semantic colour, primitives
+  design.py        One design language: semantic colour and this project's own components
   diagrams.py      Static inline SVG — the gate pipeline, tiers, the ledger
   app.py           Patient chat, the ladder, the provenance ledger
   clinical.py      The staff surface (separate app, own port)
@@ -205,7 +208,7 @@ evals/
   runner.py        Drives scenarios, asserts on the audit log
   judge.py         LLM judge, for claims that are genuinely about wording
   scenarios/       24 YAML scenarios
-tests/             1181 tests, no network, no model
+tests/             1185 tests, no network, no model
   replay.py        Recorded-transcript backend, so tests need no API
 clinic.yaml        Clinic policy and configuration
 ```

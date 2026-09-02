@@ -1,0 +1,36 @@
+# Streamlit theme, pinned.
+#
+# This file exists because injected CSS is the wrong tool for the framework's own
+# surfaces, and using it that way broke both apps in turn.
+#
+# The failure mode both times was the same shape: a stylesheet that sets *some*
+# of a widget's colours while Streamlit's theme sets the rest. First a near-black
+# ground with no ink, so a light theme painted dark text on it. Then a light
+# ground with forced dark ink, so a *dark* theme painted dark labels on its own
+# dark buttons — the "Start a new conversation" button was invisible until hover
+# repainted it.
+#
+# The theme is the supported mechanism: set these and Streamlit derives every
+# widget colour consistently — buttons, inputs, expanders, chat bubbles, the
+# sidebar — none of which a stylesheet can reach reliably. Pinning it also makes
+# both apps deterministic rather than dependent on whatever the viewer's browser
+# or OS prefers, which is what made this hard to reproduce.
+#
+# ui/design.py mirrors these values for its own components, and a test asserts
+# the two files agree. Change one, change both, or the test says so.
+
+[theme]
+base = "light"
+backgroundColor = "#fbfcfd"
+secondaryBackgroundColor = "#eef3f5"
+textColor = "#1a2328"
+linkColor = "#0f4c52"
+primaryColor = "#0f4c52"
+borderColor = "#d6e0e4"
+codeBackgroundColor = "#eef3f5"
+
+[server]
+headless = true
+
+[browser]
+gatherUsageStats = false

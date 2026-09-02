@@ -19,7 +19,15 @@ refused something*:
 
 from __future__ import annotations
 
-from ui.design import ALLOW, DENY, MUTED, PALETTES, Surface
+from ui.design import (
+    ALLOW,
+    DENY,
+    MUTED,
+    PALETTES,
+    THEME_BORDER,
+    THEME_INK,
+    Surface,
+)
 
 # The gate's own order (app/policy/gates.py). Two of these were added by r3 and
 # run ahead of the original four.
@@ -60,7 +68,6 @@ def gate_pipeline(allowed: bool, code: str | None, surface: Surface = "patient")
     needs to see that they were *never reached*, which is the difference between
     a call refused early and one refused late.
     """
-    p = PALETTES[surface]
     failed = STAGE_BY_CODE.get(code or "") if not allowed else None
     stop = STAGES.index(failed) if failed in STAGES else len(STAGES)
 
@@ -82,7 +89,7 @@ def gate_pipeline(allowed: bool, code: str | None, surface: Surface = "patient")
         elif index < stop:
             fill, stroke, ink, weight = "none", ALLOW, ALLOW, "500"
         else:
-            fill, stroke, ink, weight = "none", p.edge, MUTED, "400"
+            fill, stroke, ink, weight = "none", THEME_BORDER, MUTED, "400"
 
         parts.append(
             f'<rect x="{x}" y="2" width="{box_w}" height="{box_h}" rx="4" '
@@ -99,7 +106,7 @@ def gate_pipeline(allowed: bool, code: str | None, surface: Surface = "patient")
             )
         if index < len(STAGES) - 1:
             arrow_x = x + box_w
-            colour = ALLOW if index < stop else p.edge
+            colour = ALLOW if index < stop else THEME_BORDER
             parts.append(
                 f'<line x1="{arrow_x + 1}" y1="{2 + box_h / 2}" '
                 f'x2="{arrow_x + gap_w - 3}" y2="{2 + box_h / 2}" '
@@ -146,13 +153,13 @@ def tier_bands(queried: list[str], permitted: list[str], surface: Surface = "pat
         if tier in queried:
             fill, stroke, note, note_colour = p.identity, p.identity, "queried", p.identity
         elif tier in permitted:
-            fill, stroke, note, note_colour = "none", p.edge, "available", MUTED
+            fill, stroke, note, note_colour = "none", THEME_BORDER, "available", MUTED
         else:
             fill, stroke, note, note_colour = "none", DENY, "locked ✕", DENY
 
         parts.append(
             f'<text x="0" y="{y + row_h / 2 + 4}" font-size="11" '
-            f'fill="{p.ink}">{tier}</text>'
+            f'fill="{THEME_INK}">{tier}</text>'
             f'<rect x="{label_w}" y="{y}" width="{bar_w}" height="{row_h}" rx="3" '
             f'fill="{fill}" stroke="{stroke}" stroke-width="1.5" '
             f'stroke-dasharray="{"3 3" if tier not in permitted else "none"}"/>'
@@ -197,7 +204,7 @@ def provenance_ledger(ledger: dict[str, list[str]], surface: Surface = "patient"
     for index, (label, values) in enumerate(rows):
         y = pad + index * (row_h + gap_h)
         parts.append(
-            f'<text x="0" y="{y + row_h / 2 + 4}" font-size="11" fill="{p.quiet}">{label}</text>'
+            f'<text x="0" y="{y + row_h / 2 + 4}" font-size="11" fill="{MUTED}">{label}</text>'
         )
         if not values:
             parts.append(
@@ -211,9 +218,9 @@ def provenance_ledger(ledger: dict[str, list[str]], surface: Surface = "patient"
             chip_w = 8 + len(value) * 6.2
             parts.append(
                 f'<rect x="{x}" y="{y + 2}" width="{chip_w:.0f}" height="{row_h - 4}" '
-                f'rx="3" fill="{p.edge}" stroke="{p.identity}" stroke-width="1"/>'
+                f'rx="3" fill="{THEME_BORDER}" stroke="{p.identity}" stroke-width="1"/>'
                 f'<text x="{x + chip_w / 2:.0f}" y="{y + row_h / 2 + 3.5}" '
-                f'text-anchor="middle" font-size="9.5" fill="{p.ink}">'
+                f'text-anchor="middle" font-size="9.5" fill="{THEME_INK}">'
                 f"{_escape(value)}</text>"
             )
             x += chip_w + 5
@@ -247,7 +254,7 @@ def verification_ladder(actual: str, surface: Surface = "patient") -> str:
         f'aria-label="Verification ladder: {_escape(actual)}" '
         f'style="max-width:100%;height:auto;font-family:inherit">'
         f'<line x1="{dot_x}" y1="{pad + 8}" x2="{dot_x}" '
-        f'y2="{height - step_h + 8}" stroke="{p.edge}" stroke-width="2"/>'
+        f'y2="{height - step_h + 8}" stroke="{THEME_BORDER}" stroke-width="2"/>'
     ]
     for index, rung in enumerate(LADDER):
         y = pad + index * step_h + 8
@@ -255,12 +262,12 @@ def verification_ladder(actual: str, surface: Surface = "patient") -> str:
             parts.append(
                 f'<circle cx="{dot_x}" cy="{y}" r="5" fill="{p.identity}"/>'
                 f'<text x="{dot_x + 14}" y="{y + 4}" font-size="11.5" '
-                f'font-weight="600" fill="{p.ink}">{rung}</text>'
+                f'font-weight="600" fill="{THEME_INK}">{rung}</text>'
             )
         else:
             parts.append(
                 f'<circle cx="{dot_x}" cy="{y}" r="5" fill="none" '
-                f'stroke="{p.edge}" stroke-width="2"/>'
+                f'stroke="{THEME_BORDER}" stroke-width="2"/>'
                 f'<text x="{dot_x + 14}" y="{y + 4}" font-size="11.5" '
                 f'fill="{MUTED}">{rung}</text>'
             )
