@@ -29,21 +29,59 @@ API = os.environ.get("API_BASE_URL", "http://127.0.0.1:8000")
 
 st.set_page_config(page_title="Clinical review — staff only", page_icon="🩺", layout="wide")
 
-# Not the patient palette. A clinician who cannot tell at a glance which surface
-# they are on is one keystroke from typing a patient's details into the wrong one.
-st.markdown(
-    """
-    <style>
-      .stApp { background-color: #101820; }
-      .clin-banner {
-        border-left: 4px solid #3ea6a6; background: #16222c; color: #d6e6e6;
-        padding: 0.75rem 1rem; margin-bottom: 0.5rem; font-size: 0.9rem;
-      }
-      .clin-scope { color: #9fc3c3; font-size: 0.82rem; }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+# A palette of its own, and every rule that sets a ground also sets an ink.
+#
+# The first version set only `.stApp { background-color: #101820 }` — a near-black
+# ground with no colour declared — so Streamlit kept painting its own dark text on
+# it and the page was unreadable on a light theme. Half a dark mode is worse than
+# none: the patient app declares no colours at all and inherits the viewer's
+# theme, which is why only this page broke.
+#
+# Light rather than dark, deliberately. The requirement is that a clinician can
+# tell at a glance which surface they are on, not that this one be dark, and a
+# light scheme with a strong accent needs far less CSS to stay legible against
+# whatever theme the viewer has chosen. Contrast of the ink on the ground is
+# about 12:1, well past WCAG AA.
+CLINICAL_CSS = """
+<style>
+  /* Ground and ink together, always. */
+  .stApp { background-color: #f1f6f7; color: #14282e; }
+
+  /* Streamlit colours several of these itself, so inheritance is not enough. */
+  .stApp, .stApp p, .stApp li, .stApp label, .stApp span,
+  .stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp h5,
+  .stApp [data-testid="stMarkdownContainer"] { color: #14282e; }
+
+  .stApp [data-testid="stCaptionContainer"],
+  .stApp [data-testid="stCaptionContainer"] * { color: #41626a; }
+
+  /* The container owns its own text, not just its children: a descendant rule
+     misses anything Streamlit renders directly into the container. */
+  [data-testid="stSidebar"] { background-color: #dce8ea; color: #14282e; }
+  [data-testid="stSidebar"] * { color: #14282e; }
+  [data-testid="stHeader"] { background-color: #f1f6f7; color: #14282e; }
+
+  /* The band is what makes the surface recognisable in a screenshot. */
+  .clin-band {
+    background-color: #0f4c52; color: #eaf4f4;
+    padding: 0.7rem 1rem; border-radius: 4px; margin-bottom: 1rem;
+    font-size: 0.92rem; line-height: 1.45;
+  }
+  .clin-band strong { color: #ffffff; }
+
+  .stApp code, .stApp pre {
+    background-color: #e2eef0; color: #0b3a40;
+  }
+  [data-testid="stChatMessage"] {
+    background-color: #ffffff; color: #14282e; border: 1px solid #cfe0e3;
+  }
+  .stApp input, .stApp textarea {
+    background-color: #ffffff; color: #14282e;
+  }
+</style>
+"""
+
+st.markdown(CLINICAL_CSS, unsafe_allow_html=True)
 
 
 def post(path: str, body: dict[str, Any] | None = None) -> dict[str, Any] | None:
@@ -96,7 +134,12 @@ config = get("/config") or {}
 clinical_config = config.get("clinical", {})
 
 st.title("🩺 Clinical review")
-st.caption("Staff channel. Not a patient-facing surface.")
+st.markdown(
+    '<div class="clin-band"><strong>Staff channel — not patient-facing.</strong> '
+    "Reference material compiled from a fixed indexed source set, for clinician "
+    "review. Not a diagnosis, a treatment plan, or a prescription.</div>",
+    unsafe_allow_html=True,
+)
 
 if not clinical_config.get("enabled"):
     st.warning(

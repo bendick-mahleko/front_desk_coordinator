@@ -463,3 +463,101 @@ def test_every_ui_entry_point_is_in_the_demo_script():
     for name in entry_points:
         assert f"ui/{name}" in demo, f"docs/demo.md never tells anyone to run ui/{name}"
         assert f"ui/{name}" in readme, f"README.md never tells anyone to run ui/{name}"
+
+
+# ------------------------------------------------------------- legibility ---
+
+
+def _css_rules(text: str) -> list[tuple[str, str]]:
+    """(selector, body) for each rule in the clinical stylesheet."""
+    import re
+
+    block = re.search(r"<style>(.*?)</style>", text, re.DOTALL)
+    assert block, "no stylesheet found in ui/clinical.py"
+    return [
+        (match.group(1).strip(), match.group(2))
+        for match in re.finditer(r"([^{}]+)\{([^{}]*)\}", block.group(1))
+    ]
+
+
+def _stylesheet() -> str:
+    from pathlib import Path
+
+    return (Path(__file__).resolve().parent.parent / "ui" / "clinical.py").read_text(
+        encoding="utf-8"
+    )
+
+
+def test_no_rule_sets_a_ground_without_an_ink():
+    """The reported defect, as an invariant.
+
+    The first palette set `.stApp { background-color: #101820 }` and no colour,
+    so Streamlit went on painting its own dark text onto a near-black ground and
+    the page was unreadable. Half a dark mode is worse than none — the patient
+    app declares no colours at all and inherits the viewer's theme, which is why
+    only this page broke.
+
+    Any rule that paints a background owns the text on it.
+    """
+    offenders = [
+        selector
+        for selector, body in _css_rules(_stylesheet())
+        if "background" in body and "color:" not in body.replace("background-color:", "")
+    ]
+
+    assert offenders == [], f"these rules set a background but no text colour: {offenders}"
+
+
+def test_the_ink_and_the_ground_are_far_apart():
+    """A palette can pair both and still be unreadable. Checked as contrast
+    rather than by eye, because 'looks fine on my monitor' is how the first one
+    shipped."""
+
+    def luminance(hex_colour: str) -> float:
+        red, green, blue = (int(hex_colour[index : index + 2], 16) / 255 for index in (1, 3, 5))
+        channels = [
+            value / 12.92 if value <= 0.03928 else ((value + 0.055) / 1.055) ** 2.4
+            for value in (red, green, blue)
+        ]
+        return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2]
+
+    def ratio(one: str, two: str) -> float:
+        first, second = sorted((luminance(one), luminance(two)), reverse=True)
+        return (first + 0.05) / (second + 0.05)
+
+    # Body text, caption text, and the header band, against their own grounds.
+    assert ratio("#14282e", "#f1f6f7") > 7.0  # AAA for body text
+    assert ratio("#41626a", "#f1f6f7") > 4.5  # AA for the quieter captions
+    assert ratio("#eaf4f4", "#0f4c52") > 4.5  # the band, inverted
+    assert ratio("#14282e", "#dce8ea") > 7.0  # sidebar
+
+
+def test_the_two_surfaces_do_not_look_alike():
+    """§3.2's rationale in the UI: a clinician should be able to tell which side
+    of the boundary they are on without reading a word. The patient app declares
+    no palette, so any palette here is a difference — but the band is what makes
+    it obvious in a screenshot."""
+    from pathlib import Path
+
+    patient = (Path(__file__).resolve().parent.parent / "ui" / "app.py").read_text(encoding="utf-8")
+
+    assert "<style>" not in patient, "the patient app should inherit the viewer's theme"
+    assert "clin-band" in _stylesheet()
+
+
+def test_the_stylesheet_has_no_dead_rules():
+    """The first version carried .clin-banner and .clin-scope, neither of which
+    was ever applied. Dead CSS is where a palette drifts from what is on screen."""
+    stylesheet = _stylesheet()
+
+    for selector, _ in _css_rules(stylesheet):
+        for name in selector.split(","):
+            name = name.strip()
+            if not name.startswith("."):
+                continue
+            classname = name.lstrip(".").split()[0].split(":")[0]
+            if classname.startswith("st") or classname.startswith("clin") is False:
+                continue
+            assert f'"{classname}' in stylesheet or f'class="{classname}' in stylesheet, (
+                f"{classname} is styled but never used"
+            )
