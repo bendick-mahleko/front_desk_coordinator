@@ -1,6 +1,6 @@
 # AI Front Desk Coordinator
 
-Clinic front-desk assistant prototype.
+Clinic front-desk assistant.
 
 The assistant identifies patient needs, verifies patients, manages appointments,
 checks insurance eligibility, shares clinic information, sends secure messages,
